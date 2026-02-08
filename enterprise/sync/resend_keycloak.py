@@ -33,7 +33,6 @@ from typing import Any, Dict, List, Optional
 
 import resend
 from keycloak.exceptions import KeycloakError
-from resend.exceptions import ResendError
 from server.auth.token_manager import get_keycloak_admin
 from tenacity import (
     retry,
