@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime
 from typing import AsyncGenerator
 from uuid import UUID
 
@@ -15,6 +14,7 @@ from sqlalchemy import UUID as SQLUUID
 from sqlalchemy import Column, Enum, String, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from openhands.agent_server.utils import utc_now
 from openhands.app_server.event_callback.event_callback_models import (
     CreateEventCallbackRequest,
     EventCallback,
@@ -90,7 +90,7 @@ class SQLEventCallbackService(EventCallbackService):
         self.db_session.add(stored_callback)
         await self.db_session.commit()
         await self.db_session.refresh(stored_callback)
-        return EventCallback(**row2dict(stored_callback))
+        return EventCallback.model_validate(row2dict(stored_callback))
 
     async def get_event_callback(self, id: UUID) -> EventCallback | None:
         """Get a single event callback, returning None if not found."""
@@ -98,7 +98,7 @@ class SQLEventCallbackService(EventCallbackService):
         result = await self.db_session.execute(stmt)
         stored_callback = result.scalar_one_or_none()
         if stored_callback:
-            return EventCallback(**row2dict(stored_callback))
+            return EventCallback.model_validate(row2dict(stored_callback))
         return None
 
     async def delete_event_callback(self, id: UUID) -> bool:
@@ -173,11 +173,13 @@ class SQLEventCallbackService(EventCallbackService):
             next_page_id = str(offset + limit)
 
         # Convert stored callbacks to domain models
-        callbacks = [EventCallback(**row2dict(cb)) for cb in stored_callbacks]
+        callbacks = [
+            EventCallback.model_validate(row2dict(cb)) for cb in stored_callbacks
+        ]
         return EventCallbackPage(items=callbacks, next_page_id=next_page_id)
 
     async def save_event_callback(self, event_callback: EventCallback) -> EventCallback:
-        event_callback.updated_at = datetime.now()
+        event_callback.updated_at = utc_now()
         stored_callback = StoredEventCallback(**event_callback.model_dump())
         await self.db_session.merge(stored_callback)
         return event_callback
@@ -202,13 +204,19 @@ class SQLEventCallbackService(EventCallbackService):
         result = await self.db_session.execute(query)
         stored_callbacks = result.scalars().all()
         if stored_callbacks:
-            callbacks = [EventCallback(**row2dict(cb)) for cb in stored_callbacks]
+            callbacks = [
+                EventCallback.model_validate(row2dict(cb)) for cb in stored_callbacks
+            ]
             await asyncio.gather(
                 *[
                     self.execute_callback(conversation_id, callback, event)
                     for callback in callbacks
                 ]
             )
+
+            # Persist any new changes callbacks may have made to itself
+            for callback in callbacks:
+                await self.save_event_callback(callback)
             await self.db_session.commit()
 
     async def execute_callback(

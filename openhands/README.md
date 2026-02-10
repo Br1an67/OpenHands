@@ -2,8 +2,7 @@
 
 This directory contains the core components of OpenHands.
 
-This diagram provides an overview of the roles of each component and how they communicate and collaborate.
-![OpenHands System Architecture Diagram (July 4, 2024)](../docs/static/img/system_architecture_overview.png)
+For an overview of the system architecture, see the [architecture documentation](https://docs.openhands.dev/usage/architecture/backend) (v0 backend architecture).
 
 ## Classes
 
@@ -52,4 +51,4 @@ flowchart LR
 
 ## Runtime
 
-Please refer to the [documentation](https://docs.all-hands.dev/usage/architecture/runtime) to learn more about `Runtime`.
+Please refer to the [documentation](https://docs.openhands.dev/usage/architecture/runtime) to learn more about `Runtime`.

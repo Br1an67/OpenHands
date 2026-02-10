@@ -76,7 +76,7 @@ variables in your terminal. The final configurations are set from highest to low
 Environment variables > config.toml variables > default variables
 
 **Note on Alternative Models:**
-See [our documentation](https://docs.all-hands.dev/usage/llms) for recommended models.
+See [our documentation](https://docs.openhands.dev/usage/llms) for recommended models.
 
 ### 4. Running the application
 
@@ -91,14 +91,14 @@ make run
 #### Option B: Individual Server Startup
 
 - **Start the Backend Server:** If you prefer, you can start the backend server independently to focus on
-backend-related tasks or configurations.
+  backend-related tasks or configurations.
 
   ```bash
   make start-backend
   ```
 
 - **Start the Frontend Server:** Similarly, you can start the frontend server on its own to work on frontend-related
-components or interface enhancements.
+  components or interface enhancements.
   ```bash
   make start-frontend
   ```
@@ -110,6 +110,7 @@ You can use OpenHands to develop and improve OpenHands itself! This is a powerfu
 #### Quick Start
 
 1. **Build and run OpenHands:**
+
    ```bash
    export INSTALL_DOCKER=0
    export RUNTIME=local
@@ -117,6 +118,7 @@ You can use OpenHands to develop and improve OpenHands itself! This is a powerfu
    ```
 
 2. **Access the interface:**
+
    - Local development: http://localhost:3001
    - Remote/cloud environments: Use the appropriate external URL
 
@@ -193,12 +195,12 @@ Here's a guide to the important documentation files in the repository:
 - [/README.md](./README.md): Main project overview, features, and basic setup instructions
 - [/Development.md](./Development.md) (this file): Comprehensive guide for developers working on OpenHands
 - [/CONTRIBUTING.md](./CONTRIBUTING.md): Guidelines for contributing to the project, including code style and PR process
-- [DOC_STYLE_GUIDE.md](https://github.com/All-Hands-AI/docs/blob/main/openhands/DOC_STYLE_GUIDE.md): Standards for writing and maintaining project documentation
+- [DOC_STYLE_GUIDE.md](https://github.com/OpenHands/docs/blob/main/openhands/DOC_STYLE_GUIDE.md): Standards for writing and maintaining project documentation
 - [/openhands/README.md](./openhands/README.md): Details about the backend Python implementation
 - [/frontend/README.md](./frontend/README.md): Frontend React application setup and development guide
 - [/containers/README.md](./containers/README.md): Information about Docker containers and deployment
 - [/tests/unit/README.md](./tests/unit/README.md): Guide to writing and running unit tests
-- [/evaluation/README.md](./evaluation/README.md): Documentation for the evaluation framework and benchmarks
-- [/microagents/README.md](./microagents/README.md): Information about the microagents architecture and implementation
+- [OpenHands/benchmarks](https://github.com/OpenHands/benchmarks): Documentation for the evaluation framework and benchmarks
+- [/skills/README.md](./skills/README.md): Information about the skills architecture and implementation
 - [/openhands/server/README.md](./openhands/server/README.md): Server implementation details and API documentation
 - [/openhands/runtime/README.md](./openhands/runtime/README.md): Documentation for the runtime environment and execution model

@@ -1,19 +1,21 @@
 import asyncio
+import json
 import logging
+import os
+import tempfile
+import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from time import time
-from typing import AsyncGenerator, Sequence
+from typing import Any, AsyncGenerator, Sequence
 from uuid import UUID, uuid4
 
 import httpx
 from fastapi import Request
-from pydantic import Field, TypeAdapter
+from pydantic import Field, SecretStr, TypeAdapter
 
 from openhands.agent_server.models import (
     ConversationInfo,
-    NeverConfirm,
     SendMessageRequest,
     StartConversationRequest,
 )
@@ -21,6 +23,7 @@ from openhands.app_server.app_conversation.app_conversation_info_service import 
     AppConversationInfoService,
 )
 from openhands.app_server.app_conversation.app_conversation_models import (
+    AgentType,
     AppConversation,
     AppConversationInfo,
     AppConversationPage,
@@ -28,22 +31,25 @@ from openhands.app_server.app_conversation.app_conversation_models import (
     AppConversationStartRequest,
     AppConversationStartTask,
     AppConversationStartTaskStatus,
+    AppConversationUpdateRequest,
+    PluginSpec,
 )
 from openhands.app_server.app_conversation.app_conversation_service import (
     AppConversationService,
     AppConversationServiceInjector,
 )
+from openhands.app_server.app_conversation.app_conversation_service_base import (
+    AppConversationServiceBase,
+)
 from openhands.app_server.app_conversation.app_conversation_start_task_service import (
     AppConversationStartTaskService,
-)
-from openhands.app_server.app_conversation.git_app_conversation_service import (
-    GitAppConversationService,
 )
 from openhands.app_server.app_conversation.sql_app_conversation_info_service import (
     SQLAppConversationInfoService,
 )
 from openhands.app_server.config import get_event_callback_service
 from openhands.app_server.errors import SandboxError
+from openhands.app_server.event.event_service import EventService
 from openhands.app_server.event_callback.event_callback_models import EventCallback
 from openhands.app_server.event_callback.event_callback_service import (
     EventCallbackService,
@@ -62,28 +68,44 @@ from openhands.app_server.sandbox.sandbox_spec_service import SandboxSpecService
 from openhands.app_server.services.injector import InjectorState
 from openhands.app_server.services.jwt_service import JwtService
 from openhands.app_server.user.user_context import UserContext
+from openhands.app_server.user.user_models import UserInfo
+from openhands.app_server.utils.docker_utils import (
+    replace_localhost_hostname_for_docker,
+)
+from openhands.app_server.utils.llm_metadata import (
+    get_llm_metadata,
+    should_set_litellm_extra_body,
+)
 from openhands.experiments.experiment_manager import ExperimentManagerImpl
 from openhands.integrations.provider import ProviderType
-from openhands.sdk import LocalWorkspace
-from openhands.sdk.conversation.secret_source import LookupSecret, StaticSecret
+from openhands.sdk import Agent, AgentContext, LocalWorkspace
 from openhands.sdk.llm import LLM
-from openhands.sdk.security.confirmation_policy import AlwaysConfirm
+from openhands.sdk.plugin import PluginSource
+from openhands.sdk.secret import LookupSecret, SecretValue, StaticSecret
+from openhands.sdk.utils.paging import page_iterator
 from openhands.sdk.workspace.remote.async_remote_workspace import AsyncRemoteWorkspace
-from openhands.tools.preset.default import get_default_agent
+from openhands.server.types import AppMode
+from openhands.tools.preset.default import (
+    get_default_tools,
+)
+from openhands.tools.preset.planning import (
+    format_plan_structure,
+    get_planning_tools,
+)
 
 _conversation_info_type_adapter = TypeAdapter(list[ConversationInfo | None])
 _logger = logging.getLogger(__name__)
-GIT_TOKEN = 'GIT_TOKEN'
 
 
 @dataclass
-class LiveStatusAppConversationService(GitAppConversationService):
+class LiveStatusAppConversationService(AppConversationServiceBase):
     """AppConversationService which combines live status info from the sandbox with stored data."""
 
     user_context: UserContext
     app_conversation_info_service: AppConversationInfoService
     app_conversation_start_task_service: AppConversationStartTaskService
     event_callback_service: EventCallbackService
+    event_service: EventService
     sandbox_service: SandboxService
     sandbox_spec_service: SandboxSpecService
     jwt_service: JwtService
@@ -91,7 +113,10 @@ class LiveStatusAppConversationService(GitAppConversationService):
     sandbox_startup_poll_frequency: int
     httpx_client: httpx.AsyncClient
     web_url: str | None
+    openhands_provider_base_url: str | None
     access_token_hard_timeout: timedelta | None
+    app_mode: str | None = None
+    tavily_api_key: str | None = None
 
     async def search_app_conversations(
         self,
@@ -103,6 +128,7 @@ class LiveStatusAppConversationService(GitAppConversationService):
         sort_order: AppConversationSortOrder = AppConversationSortOrder.CREATED_AT_DESC,
         page_id: str | None = None,
         limit: int = 20,
+        include_sub_conversations: bool = False,
     ) -> AppConversationPage:
         """Search for sandboxed conversations."""
         page = await self.app_conversation_info_service.search_app_conversation_info(
@@ -114,6 +140,7 @@ class LiveStatusAppConversationService(GitAppConversationService):
             sort_order=sort_order,
             page_id=page_id,
             limit=limit,
+            include_sub_conversations=include_sub_conversations,
         )
         conversations: list[AppConversation] = await self._build_app_conversations(
             page.items
@@ -168,6 +195,20 @@ class LiveStatusAppConversationService(GitAppConversationService):
     ) -> AsyncGenerator[AppConversationStartTask, None]:
         # Create and yield the start task
         user_id = await self.user_context.get_user_id()
+
+        # Validate and inherit from parent conversation if provided
+        if request.parent_conversation_id:
+            parent_info = (
+                await self.app_conversation_info_service.get_app_conversation_info(
+                    request.parent_conversation_id
+                )
+            )
+            if parent_info is None:
+                raise ValueError(
+                    f'Parent conversation not found: {request.parent_conversation_id}'
+                )
+            self._inherit_configuration_from_parent(request, parent_info)
+
         task = AppConversationStartTask(
             created_by_user_id=user_id,
             request=request,
@@ -192,20 +233,30 @@ class LiveStatusAppConversationService(GitAppConversationService):
             assert sandbox_spec is not None
 
             # Run setup scripts
-            workspace = AsyncRemoteWorkspace(
+            remote_workspace = AsyncRemoteWorkspace(
                 host=agent_server_url,
                 api_key=sandbox.session_api_key,
                 working_dir=sandbox_spec.working_dir,
             )
-            async for updated_task in self.run_setup_scripts(task, workspace):
+            async for updated_task in self.run_setup_scripts(
+                task, sandbox, remote_workspace, agent_server_url
+            ):
                 yield updated_task
 
             # Build the start request
             start_conversation_request = (
                 await self._build_start_conversation_request_for_user(
+                    sandbox,
                     request.initial_message,
+                    request.system_message_suffix,
                     request.git_provider,
                     sandbox_spec.working_dir,
+                    request.agent_type,
+                    request.llm_model,
+                    request.conversation_id,
+                    remote_workspace=remote_workspace,
+                    selected_repository=request.selected_repository,
+                    plugins=request.plugins,
                 )
             )
 
@@ -215,14 +266,16 @@ class LiveStatusAppConversationService(GitAppConversationService):
             yield task
 
             # Start conversation...
+            body_json = start_conversation_request.model_dump(
+                mode='json', context={'expose_secrets': True}
+            )
             response = await self.httpx_client.post(
                 f'{agent_server_url}/api/conversations',
-                json=start_conversation_request.model_dump(
-                    mode='json', context={'expose_secrets': True}
-                ),
+                json=body_json,
                 headers={'X-Session-API-Key': sandbox.session_api_key},
                 timeout=self.sandbox_startup_timeout,
             )
+
             response.raise_for_status()
             info = ConversationInfo.model_validate(response.json())
 
@@ -230,7 +283,7 @@ class LiveStatusAppConversationService(GitAppConversationService):
             user_id = await self.user_context.get_user_id()
             app_conversation_info = AppConversationInfo(
                 id=info.id,
-                title=f'Conversation {info.id.hex}',
+                title=f'Conversation {info.id.hex[:5]}',
                 sandbox_id=sandbox.id,
                 created_by_user_id=user_id,
                 llm_model=start_conversation_request.agent.llm.model,
@@ -240,27 +293,40 @@ class LiveStatusAppConversationService(GitAppConversationService):
                 git_provider=request.git_provider,
                 trigger=request.trigger,
                 pr_number=request.pr_number,
+                parent_conversation_id=request.parent_conversation_id,
             )
             await self.app_conversation_info_service.save_app_conversation_info(
                 app_conversation_info
             )
 
             # Setup default processors
-            processors = request.processors
-            if processors is None:
-                processors = [SetTitleCallbackProcessor()]
+            processors = request.processors or []
+
+            # Always ensure SetTitleCallbackProcessor is included
+            has_set_title_processor = any(
+                isinstance(processor, SetTitleCallbackProcessor)
+                for processor in processors
+            )
+            if not has_set_title_processor:
+                processors.append(SetTitleCallbackProcessor())
 
             # Save processors
-            await asyncio.gather(
-                *[
-                    self.event_callback_service.save_event_callback(
-                        EventCallback(
-                            conversation_id=info.id,
-                            processor=processor,
-                        )
+            for processor in processors:
+                await self.event_callback_service.save_event_callback(
+                    EventCallback(
+                        conversation_id=info.id,
+                        processor=processor,
                     )
-                    for processor in processors
-                ]
+                )
+
+            # Set security analyzer from settings
+            user = await self.user_context.get_user_info()
+            await self._set_security_analyzer_from_settings(
+                agent_server_url,
+                sandbox.session_api_key,
+                info.id,
+                user.security_analyzer,
+                self.httpx_client,
             )
 
             # Update the start task
@@ -346,6 +412,16 @@ class LiveStatusAppConversationService(GitAppConversationService):
             conversation_info = _conversation_info_type_adapter.validate_python(data)
             conversation_info = [c for c in conversation_info if c]
             return conversation_info
+        except httpx.HTTPStatusError as exc:
+            # The runtime API stops idle sandboxes all the time and they return a 503.
+            # This is normal and should not be logged.
+            if not exc.response or exc.response.status_code != 503:
+                _logger.exception(
+                    f'Error getting conversation status from sandbox {sandbox.id}',
+                    exc_info=True,
+                    stack_info=True,
+                )
+            return []
         except Exception:
             # Not getting a status is not a fatal error - we just mark the conversation as stopped
             _logger.exception(
@@ -402,9 +478,17 @@ class LiveStatusAppConversationService(GitAppConversationService):
         self, task: AppConversationStartTask
     ) -> AsyncGenerator[AppConversationStartTask, None]:
         """Wait for sandbox to start and return info."""
-        # Get the sandbox
+        # Get or create the sandbox
         if not task.request.sandbox_id:
-            sandbox = await self.sandbox_service.start_sandbox()
+            # Convert conversation_id to hex string if present
+            sandbox_id_str = (
+                task.request.conversation_id.hex
+                if task.request.conversation_id is not None
+                else None
+            )
+            sandbox = await self.sandbox_service.start_sandbox(
+                sandbox_id=sandbox_id_str
+            )
             task.sandbox_id = sandbox.id
         else:
             sandbox_info = await self.sandbox_service.get_sandbox(
@@ -414,31 +498,34 @@ class LiveStatusAppConversationService(GitAppConversationService):
                 raise SandboxError(f'Sandbox not found: {task.request.sandbox_id}')
             sandbox = sandbox_info
 
-        # Update the listener
+        # Update the listener with sandbox info
         task.status = AppConversationStartTaskStatus.WAITING_FOR_SANDBOX
         task.sandbox_id = sandbox.id
         yield task
 
+        # Resume if paused
         if sandbox.status == SandboxStatus.PAUSED:
             await self.sandbox_service.resume_sandbox(sandbox.id)
+
+        # Check for immediate error states
         if sandbox.status in (None, SandboxStatus.ERROR):
             raise SandboxError(f'Sandbox status: {sandbox.status}')
-        if sandbox.status == SandboxStatus.RUNNING:
-            return
-        if sandbox.status != SandboxStatus.STARTING:
+
+        # For non-STARTING/RUNNING states (except PAUSED which we just resumed), fail fast
+        if sandbox.status not in (
+            SandboxStatus.STARTING,
+            SandboxStatus.RUNNING,
+            SandboxStatus.PAUSED,
+        ):
             raise SandboxError(f'Sandbox not startable: {sandbox.id}')
 
-        start = time()
-        while time() - start <= self.sandbox_startup_timeout:
-            await asyncio.sleep(self.sandbox_startup_poll_frequency)
-            sandbox_info = await self.sandbox_service.get_sandbox(sandbox.id)
-            if sandbox_info is None:
-                raise SandboxError(f'Sandbox not found: {sandbox.id}')
-            if sandbox.status not in (SandboxStatus.STARTING, SandboxStatus.RUNNING):
-                raise SandboxError(f'Sandbox not startable: {sandbox.id}')
-            if sandbox_info.status == SandboxStatus.RUNNING:
-                return
-        raise SandboxError(f'Sandbox failed to start: {sandbox.id}')
+        # Use shared wait_for_sandbox_running utility to poll for ready state
+        await self.sandbox_service.wait_for_sandbox_running(
+            sandbox.id,
+            timeout=self.sandbox_startup_timeout,
+            poll_interval=self.sandbox_startup_poll_frequency,
+            httpx_client=self.httpx_client,
+        )
 
     def _get_agent_server_url(self, sandbox: SandboxInfo) -> str:
         """Get agent server url for running sandbox."""
@@ -449,68 +536,672 @@ class LiveStatusAppConversationService(GitAppConversationService):
             for exposed_url in exposed_urls
             if exposed_url.name == AGENT_SERVER
         )
+        agent_server_url = replace_localhost_hostname_for_docker(agent_server_url)
         return agent_server_url
 
-    async def _build_start_conversation_request_for_user(
-        self,
-        initial_message: SendMessageRequest | None,
-        git_provider: ProviderType | None,
-        working_dir: str,
-    ) -> StartConversationRequest:
-        user = await self.user_context.get_user_info()
+    def _inherit_configuration_from_parent(
+        self, request: AppConversationStartRequest, parent_info: AppConversationInfo
+    ) -> None:
+        """Inherit configuration from parent conversation if not explicitly provided.
 
-        # Set up a secret for the git token
+        This ensures sub-conversations automatically inherit:
+        - Sandbox ID (to share the same workspace/environment)
+        - Git parameters (repository, branch, provider)
+        - LLM model
+
+        Args:
+            request: The conversation start request to modify
+            parent_info: The parent conversation info to inherit from
+        """
+        # Inherit sandbox_id from parent to share the same workspace/environment
+        if not request.sandbox_id:
+            request.sandbox_id = parent_info.sandbox_id
+
+        # Inherit git parameters from parent if not provided
+        if not request.selected_repository:
+            request.selected_repository = parent_info.selected_repository
+        if not request.selected_branch:
+            request.selected_branch = parent_info.selected_branch
+        if not request.git_provider:
+            request.git_provider = parent_info.git_provider
+
+        # Inherit LLM model from parent if not provided
+        if not request.llm_model and parent_info.llm_model:
+            request.llm_model = parent_info.llm_model
+
+    def _compute_plan_path(
+        self,
+        working_dir: str,
+        git_provider: ProviderType | None,
+    ) -> str:
+        """Compute the PLAN.md path based on provider type.
+
+        Args:
+            working_dir: The workspace working directory
+            git_provider: The git provider type (GitHub, GitLab, Azure DevOps, etc.)
+
+        Returns:
+            Absolute path to PLAN.md file in the appropriate config directory
+        """
+        # GitLab and Azure DevOps use agents-tmp-config (since .agents_tmp is invalid)
+        if git_provider in (ProviderType.GITLAB, ProviderType.AZURE_DEVOPS):
+            config_dir = 'agents-tmp-config'
+        else:
+            config_dir = '.agents_tmp'
+
+        return f'{working_dir}/{config_dir}/PLAN.md'
+
+    async def _setup_secrets_for_git_providers(self, user: UserInfo) -> dict:
+        """Set up secrets for all git provider authentication.
+
+        Args:
+            user: User information containing authentication details
+
+        Returns:
+            Dictionary of secrets for the conversation
+        """
         secrets = await self.user_context.get_secrets()
-        if git_provider:
+
+        # Get all provider tokens from user authentication
+        provider_tokens = await self.user_context.get_provider_tokens()
+        if not provider_tokens:
+            return secrets
+
+        # Create secrets for each provider token
+        for provider_type, provider_token in provider_tokens.items():
+            if not provider_token.token:
+                continue
+
+            secret_name = f'{provider_type.name}_TOKEN'
+            description = f'{provider_type.name} authentication token'
+
             if self.web_url:
-                # If there is a web url, then we create an access token to access it.
-                # For security reasons, we are explicit here - only this user, and
-                # only this provider, with a timeout
+                # Create an access token for web-based authentication
                 access_token = self.jwt_service.create_jws_token(
                     payload={
                         'user_id': user.id,
-                        'provider_type': git_provider.value,
+                        'provider_type': provider_type.value,
                     },
                     expires_in=self.access_token_hard_timeout,
                 )
-                secrets[GIT_TOKEN] = LookupSecret(
+                headers = {'X-Access-Token': access_token}
+
+                secrets[secret_name] = LookupSecret(
                     url=self.web_url + '/api/v1/webhooks/secrets',
-                    headers={'X-Access-Token': access_token},
+                    headers=headers,
+                    description=description,
                 )
             else:
-                # If there is no URL specified where the sandbox can access the app server
-                # then we supply a static secret with the most recent value. Depending
-                # on the type, this may eventually expire.
-                static_token = await self.user_context.get_latest_token(git_provider)
+                # Use static token for environments without web URL access
+                static_token = await self.user_context.get_latest_token(provider_type)
                 if static_token:
-                    secrets[GIT_TOKEN] = StaticSecret(value=static_token)
+                    secrets[secret_name] = StaticSecret(
+                        value=static_token, description=description
+                    )
 
-        workspace = LocalWorkspace(working_dir=working_dir)
+        return secrets
 
-        llm = LLM(
-            model=user.llm_model,
-            base_url=user.llm_base_url,
+    def _configure_llm(self, user: UserInfo, llm_model: str | None) -> LLM:
+        """Configure LLM settings.
+
+        Args:
+            user: User information containing LLM preferences
+            llm_model: Optional specific model to use, falls back to user default
+
+        Returns:
+            Configured LLM instance
+        """
+        model = llm_model or user.llm_model
+        base_url = user.llm_base_url
+        if model and model.startswith('openhands/'):
+            base_url = user.llm_base_url or self.openhands_provider_base_url
+
+        return LLM(
+            model=model,
+            base_url=base_url,
             api_key=user.llm_api_key,
             usage_id='agent',
         )
-        agent = get_default_agent(llm=llm)
 
-        conversation_id = uuid4()
+    async def _get_tavily_api_key(self, user: UserInfo) -> str | None:
+        """Get Tavily search API key, prioritizing user's key over service key.
+
+        Args:
+            user: User information
+
+        Returns:
+            Tavily API key if available, None otherwise
+        """
+        # Get the actual API key values, prioritizing user's key over service key
+        user_search_key = None
+        if user.search_api_key:
+            key_value = user.search_api_key.get_secret_value()
+            if key_value and key_value.strip():
+                user_search_key = key_value
+
+        service_tavily_key = None
+        if self.tavily_api_key:
+            # tavily_api_key is already a string (extracted in the factory method)
+            if self.tavily_api_key.strip():
+                service_tavily_key = self.tavily_api_key
+
+        return user_search_key or service_tavily_key
+
+    async def _add_system_mcp_servers(
+        self, mcp_servers: dict[str, Any], user: UserInfo
+    ) -> None:
+        """Add system-generated MCP servers (default OpenHands server and Tavily).
+
+        Args:
+            mcp_servers: Dictionary to add servers to
+            user: User information for API keys
+        """
+        if not self.web_url:
+            return
+
+        # Add default OpenHands MCP server
+        mcp_url = f'{self.web_url}/mcp/mcp'
+        mcp_servers['default'] = {'url': mcp_url}
+
+        # Add API key if available
+        mcp_api_key = await self.user_context.get_mcp_api_key()
+        if mcp_api_key:
+            mcp_servers['default']['headers'] = {
+                'X-Session-API-Key': mcp_api_key,
+            }
+
+        # Add Tavily search if API key is available
+        tavily_api_key = await self._get_tavily_api_key(user)
+        if tavily_api_key:
+            _logger.info('Adding search engine to MCP config')
+            mcp_servers['tavily'] = {
+                'url': f'https://mcp.tavily.com/mcp/?tavilyApiKey={tavily_api_key}'
+            }
+        else:
+            _logger.info('No search engine API key found, skipping search engine')
+
+    def _add_custom_sse_servers(
+        self, mcp_servers: dict[str, Any], sse_servers: list
+    ) -> None:
+        """Add custom SSE MCP servers from user configuration.
+
+        Args:
+            mcp_servers: Dictionary to add servers to
+            sse_servers: List of SSE server configurations
+        """
+        for sse_server in sse_servers:
+            server_config = {
+                'url': sse_server.url,
+                'transport': 'sse',
+            }
+            if sse_server.api_key:
+                server_config['headers'] = {
+                    'Authorization': f'Bearer {sse_server.api_key}'
+                }
+
+            # Generate unique server name using UUID
+            # TODO: Let the users specify the server name
+            server_name = f'sse_{uuid4().hex[:8]}'
+            mcp_servers[server_name] = server_config
+            _logger.debug(
+                f'Added custom SSE server: {server_name} for {sse_server.url}'
+            )
+
+    def _add_custom_shttp_servers(
+        self, mcp_servers: dict[str, Any], shttp_servers: list
+    ) -> None:
+        """Add custom SHTTP MCP servers from user configuration.
+
+        Args:
+            mcp_servers: Dictionary to add servers to
+            shttp_servers: List of SHTTP server configurations
+        """
+        for shttp_server in shttp_servers:
+            server_config = {
+                'url': shttp_server.url,
+                'transport': 'streamable-http',
+            }
+            if shttp_server.api_key:
+                server_config['headers'] = {
+                    'Authorization': f'Bearer {shttp_server.api_key}'
+                }
+            if shttp_server.timeout:
+                server_config['timeout'] = shttp_server.timeout
+
+            # Generate unique server name using UUID
+            # TODO: Let the users specify the server name
+            server_name = f'shttp_{uuid4().hex[:8]}'
+            mcp_servers[server_name] = server_config
+            _logger.debug(
+                f'Added custom SHTTP server: {server_name} for {shttp_server.url}'
+            )
+
+    def _add_custom_stdio_servers(
+        self, mcp_servers: dict[str, Any], stdio_servers: list
+    ) -> None:
+        """Add custom STDIO MCP servers from user configuration.
+
+        Args:
+            mcp_servers: Dictionary to add servers to
+            stdio_servers: List of STDIO server configurations
+        """
+        for stdio_server in stdio_servers:
+            server_config = {
+                'command': stdio_server.command,
+                'args': stdio_server.args,
+            }
+            if stdio_server.env:
+                server_config['env'] = stdio_server.env
+
+            # STDIO servers have an explicit name field
+            mcp_servers[stdio_server.name] = server_config
+            _logger.debug(f'Added custom STDIO server: {stdio_server.name}')
+
+    def _merge_custom_mcp_config(
+        self, mcp_servers: dict[str, Any], user: UserInfo
+    ) -> None:
+        """Merge custom MCP configuration from user settings.
+
+        Args:
+            mcp_servers: Dictionary to add servers to
+            user: User information containing custom MCP config
+        """
+        if not user.mcp_config:
+            return
+
+        try:
+            sse_count = len(user.mcp_config.sse_servers)
+            shttp_count = len(user.mcp_config.shttp_servers)
+            stdio_count = len(user.mcp_config.stdio_servers)
+
+            _logger.info(
+                f'Loading custom MCP config from user settings: '
+                f'{sse_count} SSE, {shttp_count} SHTTP, {stdio_count} STDIO servers'
+            )
+
+            # Add each type of custom server
+            self._add_custom_sse_servers(mcp_servers, user.mcp_config.sse_servers)
+            self._add_custom_shttp_servers(mcp_servers, user.mcp_config.shttp_servers)
+            self._add_custom_stdio_servers(mcp_servers, user.mcp_config.stdio_servers)
+
+            _logger.info(
+                f'Successfully merged custom MCP config: added {sse_count} SSE, '
+                f'{shttp_count} SHTTP, and {stdio_count} STDIO servers'
+            )
+
+        except Exception as e:
+            _logger.error(
+                f'Error loading custom MCP config from user settings: {e}',
+                exc_info=True,
+            )
+            # Continue with system config only, don't fail conversation startup
+            _logger.warning(
+                'Continuing with system-generated MCP config only due to custom config error'
+            )
+
+    async def _configure_llm_and_mcp(
+        self, user: UserInfo, llm_model: str | None
+    ) -> tuple[LLM, dict]:
+        """Configure LLM and MCP (Model Context Protocol) settings.
+
+        Args:
+            user: User information containing LLM preferences
+            llm_model: Optional specific model to use, falls back to user default
+
+        Returns:
+            Tuple of (configured LLM instance, MCP config dictionary)
+        """
+        # Configure LLM
+        llm = self._configure_llm(user, llm_model)
+
+        # Configure MCP - SDK expects format: {'mcpServers': {'server_name': {...}}}
+        mcp_servers: dict[str, Any] = {}
+
+        # Add system-generated servers (default + tavily)
+        await self._add_system_mcp_servers(mcp_servers, user)
+
+        # Merge custom servers from user settings
+        self._merge_custom_mcp_config(mcp_servers, user)
+
+        # Wrap in the mcpServers structure required by the SDK
+        mcp_config = {'mcpServers': mcp_servers} if mcp_servers else {}
+        _logger.info(f'Final MCP configuration: {mcp_config}')
+
+        return llm, mcp_config
+
+    def _create_agent_with_context(
+        self,
+        llm: LLM,
+        agent_type: AgentType,
+        system_message_suffix: str | None,
+        mcp_config: dict,
+        condenser_max_size: int | None,
+        secrets: dict[str, SecretValue] | None = None,
+        git_provider: ProviderType | None = None,
+        working_dir: str | None = None,
+    ) -> Agent:
+        """Create an agent with appropriate tools and context based on agent type.
+
+        Args:
+            llm: Configured LLM instance
+            agent_type: Type of agent to create (PLAN or DEFAULT)
+            system_message_suffix: Optional suffix for system messages
+            mcp_config: MCP configuration dictionary
+            condenser_max_size: condenser_max_size setting
+            secrets: Optional dictionary of secrets for authentication
+            git_provider: Optional git provider type for computing plan path
+            working_dir: Optional working directory for computing plan path
+
+        Returns:
+            Configured Agent instance with context
+        """
+        # Create condenser with user's settings
+        condenser = self._create_condenser(llm, agent_type, condenser_max_size)
+
+        # Create agent based on type
+        if agent_type == AgentType.PLAN:
+            # Compute plan path if working_dir is provided
+            plan_path = None
+            if working_dir:
+                plan_path = self._compute_plan_path(working_dir, git_provider)
+
+            agent = Agent(
+                llm=llm,
+                tools=get_planning_tools(plan_path=plan_path),
+                system_prompt_filename='system_prompt_planning.j2',
+                system_prompt_kwargs={'plan_structure': format_plan_structure()},
+                condenser=condenser,
+                security_analyzer=None,
+                mcp_config=mcp_config,
+            )
+        else:
+            agent = Agent(
+                llm=llm,
+                tools=get_default_tools(enable_browser=True),
+                system_prompt_kwargs={'cli_mode': False},
+                condenser=condenser,
+                mcp_config=mcp_config,
+            )
+
+        # Add agent context
+        agent_context = AgentContext(
+            system_message_suffix=system_message_suffix, secrets=secrets
+        )
+        agent = agent.model_copy(update={'agent_context': agent_context})
+
+        return agent
+
+    def _update_agent_with_llm_metadata(
+        self,
+        agent: Agent,
+        conversation_id: UUID,
+        user_id: str | None,
+    ) -> Agent:
+        """Update agent's LLM and condenser LLM with litellm_extra_body metadata.
+
+        This adds tracing metadata (conversation_id, user_id, etc.) to the LLM
+        for analytics and debugging purposes. Only applies to openhands/ models.
+
+        Args:
+            agent: The agent to update
+            conversation_id: The conversation ID
+            user_id: The user ID (can be None)
+
+        Returns:
+            Updated agent with LLM metadata
+        """
+        updates: dict[str, Any] = {}
+
+        # Update main LLM if it's an openhands model
+        if should_set_litellm_extra_body(agent.llm.model):
+            llm_metadata = get_llm_metadata(
+                model_name=agent.llm.model,
+                llm_type=agent.llm.usage_id or 'agent',
+                conversation_id=conversation_id,
+                user_id=user_id,
+            )
+            updated_llm = agent.llm.model_copy(
+                update={'litellm_extra_body': {'metadata': llm_metadata}}
+            )
+            updates['llm'] = updated_llm
+
+        # Update condenser LLM if it exists and is an openhands model
+        if agent.condenser and hasattr(agent.condenser, 'llm'):
+            condenser_llm = agent.condenser.llm
+            if should_set_litellm_extra_body(condenser_llm.model):
+                condenser_metadata = get_llm_metadata(
+                    model_name=condenser_llm.model,
+                    llm_type=condenser_llm.usage_id or 'condenser',
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                )
+                updated_condenser_llm = condenser_llm.model_copy(
+                    update={'litellm_extra_body': {'metadata': condenser_metadata}}
+                )
+                updated_condenser = agent.condenser.model_copy(
+                    update={'llm': updated_condenser_llm}
+                )
+                updates['condenser'] = updated_condenser
+
+        # Return updated agent if there are changes
+        if updates:
+            return agent.model_copy(update=updates)
+        return agent
+
+    def _construct_initial_message_with_plugin_params(
+        self,
+        initial_message: SendMessageRequest | None,
+        plugins: list[PluginSpec] | None,
+    ) -> SendMessageRequest | None:
+        """Incorporate plugin parameters into the initial message if specified.
+
+        Plugin parameters are formatted and appended to the initial message so the
+        agent has context about the user-provided configuration values.
+
+        Args:
+            initial_message: The original initial message, if any
+            plugins: List of plugin specifications with optional parameters
+
+        Returns:
+            The initial message with plugin parameters incorporated, or the
+            original message if no plugin parameters are specified
+        """
+        from openhands.agent_server.models import TextContent
+
+        if not plugins:
+            return initial_message
+
+        # Collect formatted parameters from plugins that have them
+        plugins_with_params = [p for p in plugins if p.parameters]
+        if not plugins_with_params:
+            return initial_message
+
+        # Format parameters, grouped by plugin if multiple
+        if len(plugins_with_params) == 1:
+            params_text = plugins_with_params[0].format_params_as_text()
+            plugin_params_message = (
+                f'\n\nPlugin Configuration Parameters:\n{params_text}'
+            )
+        else:
+            # Group by plugin name for clarity
+            formatted_plugins = []
+            for plugin in plugins_with_params:
+                params_text = plugin.format_params_as_text(indent='  ')
+                if params_text:
+                    formatted_plugins.append(f'{plugin.display_name}:\n{params_text}')
+
+            plugin_params_message = (
+                '\n\nPlugin Configuration Parameters:\n' + '\n'.join(formatted_plugins)
+            )
+
+        if initial_message is None:
+            # Create a new message with just the plugin parameters
+            return SendMessageRequest(
+                content=[TextContent(text=plugin_params_message.strip())],
+                run=True,
+            )
+
+        # Append plugin parameters to existing message content
+        new_content = list(initial_message.content)
+        if new_content and isinstance(new_content[-1], TextContent):
+            # Append to the last text content
+            last_content = new_content[-1]
+            new_content[-1] = TextContent(
+                text=last_content.text + plugin_params_message,
+                cache_prompt=last_content.cache_prompt,
+            )
+        else:
+            # Add as new text content
+            new_content.append(TextContent(text=plugin_params_message.strip()))
+
+        return SendMessageRequest(
+            role=initial_message.role,
+            content=new_content,
+            run=initial_message.run,
+        )
+
+    async def _finalize_conversation_request(
+        self,
+        agent: Agent,
+        conversation_id: UUID | None,
+        user: UserInfo,
+        workspace: LocalWorkspace,
+        initial_message: SendMessageRequest | None,
+        secrets: dict[str, SecretValue],
+        sandbox: SandboxInfo,
+        remote_workspace: AsyncRemoteWorkspace | None,
+        selected_repository: str | None,
+        working_dir: str,
+        plugins: list[PluginSpec] | None = None,
+    ) -> StartConversationRequest:
+        """Finalize the conversation request with experiment variants and skills.
+
+        Args:
+            agent: The configured agent
+            conversation_id: Optional conversation ID, generates new one if None
+            user: User information
+            workspace: Local workspace instance
+            initial_message: Optional initial message for the conversation
+            secrets: Dictionary of secrets for authentication
+            sandbox: Sandbox information
+            remote_workspace: Optional remote workspace for skills loading
+            selected_repository: Optional repository name
+            working_dir: Working directory path
+            plugins: Optional list of plugin specifications to load
+
+        Returns:
+            Complete StartConversationRequest ready for use
+        """
+        # Generate conversation ID if not provided
+        conversation_id = conversation_id or uuid4()
+
+        # Apply experiment variants
         agent = ExperimentManagerImpl.run_agent_variant_tests__v1(
             user.id, conversation_id, agent
         )
 
-        start_conversation_request = StartConversationRequest(
+        # Update agent's LLM with litellm_extra_body metadata for tracing
+        # This is done after experiment variants to ensure the final LLM config is used
+        agent = self._update_agent_with_llm_metadata(agent, conversation_id, user.id)
+
+        # Load and merge skills if remote workspace is available
+        if remote_workspace:
+            try:
+                agent = await self._load_skills_and_update_agent(
+                    sandbox, agent, remote_workspace, selected_repository, working_dir
+                )
+            except Exception as e:
+                _logger.warning(f'Failed to load skills: {e}', exc_info=True)
+                # Continue without skills - don't fail conversation startup
+
+        # Incorporate plugin parameters into initial message if specified
+        final_initial_message = self._construct_initial_message_with_plugin_params(
+            initial_message, plugins
+        )
+
+        # Convert PluginSpec list to SDK PluginSource list for agent server
+        sdk_plugins: list[PluginSource] | None = None
+        if plugins:
+            sdk_plugins = [
+                PluginSource(
+                    source=p.source,
+                    ref=p.ref,
+                    repo_path=p.repo_path,
+                )
+                for p in plugins
+            ]
+
+        # Create and return the final request
+        return StartConversationRequest(
             conversation_id=conversation_id,
             agent=agent,
             workspace=workspace,
-            confirmation_policy=(
-                AlwaysConfirm() if user.confirmation_mode else NeverConfirm()
+            confirmation_policy=self._select_confirmation_policy(
+                bool(user.confirmation_mode), user.security_analyzer
             ),
-            initial_message=initial_message,
+            initial_message=final_initial_message,
             secrets=secrets,
+            plugins=sdk_plugins,
         )
-        return start_conversation_request
+
+    async def _build_start_conversation_request_for_user(
+        self,
+        sandbox: SandboxInfo,
+        initial_message: SendMessageRequest | None,
+        system_message_suffix: str | None,
+        git_provider: ProviderType | None,
+        working_dir: str,
+        agent_type: AgentType = AgentType.DEFAULT,
+        llm_model: str | None = None,
+        conversation_id: UUID | None = None,
+        remote_workspace: AsyncRemoteWorkspace | None = None,
+        selected_repository: str | None = None,
+        plugins: list[PluginSpec] | None = None,
+    ) -> StartConversationRequest:
+        """Build a complete conversation request for a user.
+
+        This method orchestrates the creation of a conversation request by:
+        1. Setting up git provider secrets
+        2. Configuring LLM and MCP settings
+        3. Creating an agent with appropriate context
+        4. Finalizing the request with skills and experiment variants
+        5. Passing plugins to the agent server for remote plugin loading
+        """
+        user = await self.user_context.get_user_info()
+        workspace = LocalWorkspace(working_dir=working_dir)
+
+        # Set up secrets for all git providers
+        secrets = await self._setup_secrets_for_git_providers(user)
+
+        # Configure LLM and MCP
+        llm, mcp_config = await self._configure_llm_and_mcp(user, llm_model)
+
+        # Create agent with context
+        agent = self._create_agent_with_context(
+            llm,
+            agent_type,
+            system_message_suffix,
+            mcp_config,
+            user.condenser_max_size,
+            secrets=secrets,
+            git_provider=git_provider,
+            working_dir=working_dir,
+        )
+
+        # Finalize and return the conversation request
+        return await self._finalize_conversation_request(
+            agent,
+            conversation_id,
+            user,
+            workspace,
+            initial_message,
+            secrets,
+            sandbox,
+            remote_workspace,
+            selected_repository,
+            working_dir,
+            plugins=plugins,
+        )
 
     async def update_agent_server_conversation_title(
         self,
@@ -560,8 +1251,28 @@ class LiveStatusAppConversationService(GitAppConversationService):
             f'Successfully updated agent-server conversation {conversation_id} title to "{new_title}"'
         )
 
+    async def update_app_conversation(
+        self, conversation_id: UUID, request: AppConversationUpdateRequest
+    ) -> AppConversation | None:
+        """Update an app conversation and return it. Return None if the conversation
+        did not exist.
+        """
+        info = await self.app_conversation_info_service.get_app_conversation_info(
+            conversation_id
+        )
+        if info is None:
+            return None
+        for field_name in AppConversationUpdateRequest.model_fields:
+            value = getattr(request, field_name)
+            setattr(info, field_name, value)
+        info = await self.app_conversation_info_service.save_app_conversation_info(info)
+        conversations = await self._build_app_conversations([info])
+        return conversations[0]
+
     async def delete_app_conversation(self, conversation_id: UUID) -> bool:
         """Delete a V1 conversation and all its associated data.
+
+        This method will also cascade delete all sub-conversations of the parent.
 
         Args:
             conversation_id: The UUID of the conversation to delete.
@@ -586,6 +1297,10 @@ class LiveStatusAppConversationService(GitAppConversationService):
                 )
                 return False
 
+            # Delete all sub-conversations first (to maintain referential integrity)
+            await self._delete_sub_conversations(conversation_id)
+
+            # Now delete the parent conversation
             # Delete from agent server if sandbox is running
             await self._delete_from_agent_server(app_conversation)
 
@@ -600,6 +1315,41 @@ class LiveStatusAppConversationService(GitAppConversationService):
                 exc_info=True,
             )
             return False
+
+    async def _delete_sub_conversations(self, parent_conversation_id: UUID) -> None:
+        """Delete all sub-conversations of a parent conversation.
+
+        This method handles errors gracefully, continuing to delete remaining
+        sub-conversations even if one fails.
+
+        Args:
+            parent_conversation_id: The UUID of the parent conversation.
+        """
+        sub_conversation_ids = (
+            await self.app_conversation_info_service.get_sub_conversation_ids(
+                parent_conversation_id
+            )
+        )
+
+        for sub_id in sub_conversation_ids:
+            try:
+                sub_conversation = await self.get_app_conversation(sub_id)
+                if sub_conversation:
+                    # Delete from agent server if sandbox is running
+                    await self._delete_from_agent_server(sub_conversation)
+                    # Delete from database
+                    await self._delete_from_database(sub_conversation)
+                    _logger.info(
+                        f'Successfully deleted sub-conversation {sub_id}',
+                        extra={'conversation_id': str(sub_id)},
+                    )
+            except Exception as e:
+                # Log error but continue deleting remaining sub-conversations
+                _logger.warning(
+                    f'Error deleting sub-conversation {sub_id}: {e}',
+                    extra={'conversation_id': str(sub_id)},
+                    exc_info=True,
+                )
 
     async def _delete_from_agent_server(
         self, app_conversation: AppConversation
@@ -655,6 +1405,61 @@ class LiveStatusAppConversationService(GitAppConversationService):
 
         return deleted_info or deleted_tasks
 
+    async def export_conversation(self, conversation_id: UUID) -> bytes:
+        """Download a conversation trajectory as a zip file.
+
+        Args:
+            conversation_id: The UUID of the conversation to download.
+
+        Returns the zip file as bytes.
+        """
+        # Get the conversation info to verify it exists and user has access
+        conversation_info = (
+            await self.app_conversation_info_service.get_app_conversation_info(
+                conversation_id
+            )
+        )
+        if not conversation_info:
+            raise ValueError(f'Conversation not found: {conversation_id}')
+
+        # Create a temporary directory to store files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Get all events for this conversation
+            i = 0
+            async for event in page_iterator(
+                self.event_service.search_events, conversation_id=conversation_id
+            ):
+                event_filename = f'event_{i:06d}_{event.id}.json'
+                event_path = os.path.join(temp_dir, event_filename)
+
+                with open(event_path, 'w') as f:
+                    # Use model_dump with mode='json' to handle UUID serialization
+                    event_data = event.model_dump(mode='json')
+                    json.dump(event_data, f, indent=2)
+                i += 1
+
+            # Create meta.json with conversation info
+            meta_path = os.path.join(temp_dir, 'meta.json')
+            with open(meta_path, 'w') as f:
+                f.write(conversation_info.model_dump_json(indent=2))
+
+            # Create zip file in memory
+            zip_buffer = tempfile.NamedTemporaryFile()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Add all files from temp directory to zip
+                for root, dirs, files in os.walk(temp_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, temp_dir)
+                        zipf.write(file_path, arcname)
+
+            # Read the zip file content
+            zip_buffer.seek(0)
+            zip_content = zip_buffer.read()
+            zip_buffer.close()
+
+            return zip_content
+
 
 class LiveStatusAppConversationServiceInjector(AppConversationServiceInjector):
     sandbox_startup_timeout: int = Field(
@@ -674,6 +1479,10 @@ class LiveStatusAppConversationServiceInjector(AppConversationServiceInjector):
             'be retrieved by a sandboxed conversation.'
         ),
     )
+    tavily_api_key: SecretStr | None = Field(
+        default=None,
+        description='The Tavily Search API key to add to MCP integration',
+    )
 
     async def inject(
         self, state: InjectorState, request: Request | None = None
@@ -681,6 +1490,7 @@ class LiveStatusAppConversationServiceInjector(AppConversationServiceInjector):
         from openhands.app_server.config import (
             get_app_conversation_info_service,
             get_app_conversation_start_task_service,
+            get_event_service,
             get_global_config,
             get_httpx_client,
             get_jwt_service,
@@ -700,6 +1510,7 @@ class LiveStatusAppConversationServiceInjector(AppConversationServiceInjector):
                 state, request
             ) as app_conversation_start_task_service,
             get_event_callback_service(state, request) as event_callback_service,
+            get_event_service(state, request) as event_service,
             get_jwt_service(state, request) as jwt_service,
             get_httpx_client(state, request) as httpx_client,
         ):
@@ -716,6 +1527,26 @@ class LiveStatusAppConversationServiceInjector(AppConversationServiceInjector):
                 if isinstance(sandbox_service, DockerSandboxService):
                     web_url = f'http://host.docker.internal:{sandbox_service.host_port}'
 
+            # Get app_mode for SaaS mode
+            app_mode = None
+            try:
+                from openhands.server.shared import server_config
+
+                app_mode = (
+                    server_config.app_mode.value if server_config.app_mode else None
+                )
+            except (ImportError, AttributeError):
+                # If server_config is not available (e.g., in tests), continue without it
+                pass
+
+            # We supply the global tavily key only if the app mode is not SAAS, where
+            # currently the search endpoints are patched into the app server instead
+            # so the tavily key does not need to be shared
+            if self.tavily_api_key and app_mode != AppMode.SAAS:
+                tavily_api_key = self.tavily_api_key.get_secret_value()
+            else:
+                tavily_api_key = None
+
             yield LiveStatusAppConversationService(
                 init_git_in_empty_workspace=self.init_git_in_empty_workspace,
                 user_context=user_context,
@@ -724,10 +1555,14 @@ class LiveStatusAppConversationServiceInjector(AppConversationServiceInjector):
                 app_conversation_info_service=app_conversation_info_service,
                 app_conversation_start_task_service=app_conversation_start_task_service,
                 event_callback_service=event_callback_service,
+                event_service=event_service,
                 jwt_service=jwt_service,
                 sandbox_startup_timeout=self.sandbox_startup_timeout,
                 sandbox_startup_poll_frequency=self.sandbox_startup_poll_frequency,
                 httpx_client=httpx_client,
                 web_url=web_url,
+                openhands_provider_base_url=config.openhands_provider_base_url,
                 access_token_hard_timeout=access_token_hard_timeout,
+                app_mode=app_mode,
+                tavily_api_key=tavily_api_key,
             )

@@ -1,8 +1,17 @@
+# IMPORTANT: LEGACY V0 CODE - Deprecated since version 1.0.0, scheduled for removal April 1, 2026
+# This file is part of the legacy (V0) implementation of OpenHands and will be removed soon as we complete the migration to V1.
+# OpenHands V1 uses the Software Agent SDK for the agentic core and runs a new application server. Please refer to:
+#   - V1 agentic core (SDK): https://github.com/OpenHands/software-agent-sdk
+#   - V1 application server (in this repo): openhands/app_server/
+# Unless you are working on deprecation, please avoid extending this legacy file and consult the V1 codepaths above.
+# Tag: Legacy-V0
 import atexit
 import json
 import multiprocessing
+import os
 import time
 import uuid
+from pathlib import Path
 
 import browsergym.core  # noqa F401 (we register the openended task as a gym environment)
 import gymnasium as gym
@@ -67,6 +76,16 @@ class BrowserEnv:
             raise BrowserInitException('Failed to start browser environment.')
 
     def browser_process(self) -> None:
+        def _is_local_runtime() -> bool:
+            runtime_flag = os.getenv('RUNTIME', '').lower()
+            return runtime_flag == 'local'
+
+        # Default Playwright cache for local runs only; do not override in docker
+        if _is_local_runtime() and 'PLAYWRIGHT_BROWSERS_PATH' not in os.environ:
+            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = str(
+                Path.home() / '.cache' / 'playwright'
+            )
+
         if self.eval_mode:
             assert self.browsergym_eval_env is not None
             logger.info('Initializing browser env for web browsing evaluation.')
@@ -87,6 +106,11 @@ class BrowserEnv:
                 )
             env = gym.make(self.browsergym_eval_env, tags_to_mark='all', timeout=100000)
         else:
+            downloads_path = os.getenv('BROWSERGYM_DOWNLOAD_DIR')
+            if not downloads_path and _is_local_runtime():
+                downloads_path = str(Path.home() / '.cache' / 'browsergym-downloads')
+            if not downloads_path:
+                downloads_path = '/workspace/.downloads/'
             env = gym.make(
                 'browsergym/openended',
                 task_kwargs={'start_url': 'about:blank', 'goal': 'PLACEHOLDER_GOAL'},
@@ -96,7 +120,7 @@ class BrowserEnv:
                 tags_to_mark='all',
                 timeout=100000,
                 pw_context_kwargs={'accept_downloads': True},
-                pw_chromium_kwargs={'downloads_path': '/workspace/.downloads/'},
+                pw_chromium_kwargs={'downloads_path': downloads_path},
             )
         obs, info = env.reset()
 

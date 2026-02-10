@@ -11,6 +11,8 @@ import type {
   V1AppConversationStartTask,
   V1AppConversationStartTaskPage,
   V1AppConversation,
+  GetSkillsResponse,
+  V1RuntimeConversationInfo,
 } from "./v1-conversation-service.types";
 
 class V1ConversationService {
@@ -60,6 +62,8 @@ class V1ConversationService {
     selected_branch?: string,
     conversationInstructions?: string,
     trigger?: ConversationTrigger,
+    parent_conversation_id?: string,
+    agent_type?: "default" | "plan",
   ): Promise<V1AppConversationStartTask> {
     const body: V1AppConversationStartRequest = {
       selected_repository: selectedRepository,
@@ -67,6 +71,8 @@ class V1ConversationService {
       selected_branch,
       title: conversationInstructions,
       trigger,
+      parent_conversation_id: parent_conversation_id || null,
+      agent_type,
     };
 
     // Add initial message if provided
@@ -111,17 +117,21 @@ class V1ConversationService {
    * Search for start tasks (ongoing tasks that haven't completed yet)
    * Use this to find tasks that were started but the user navigated away
    *
-   * Note: Backend only supports filtering by limit. To filter by repository/trigger,
+   * Note: Backend supports filtering by limit and created_at__gte. To filter by repository/trigger,
    * filter the results client-side after fetching.
    *
    * @param limit Maximum number of tasks to return (max 100)
-   * @returns Array of start tasks
+   * @returns Array of start tasks from the last 20 minutes
    */
   static async searchStartTasks(
     limit: number = 100,
   ): Promise<V1AppConversationStartTask[]> {
     const params = new URLSearchParams();
     params.append("limit", limit.toString());
+
+    // Only get tasks from the last 20 minutes
+    const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000);
+    params.append("created_at__gte", twentyMinutesAgo.toISOString());
 
     const { data } = await openHands.get<V1AppConversationStartTaskPage>(
       `/api/v1/app-conversations/start-tasks/search?${params.toString()}`,
@@ -286,6 +296,95 @@ class V1ConversationService {
   ): Promise<{ runtime_id: string }> {
     const url = `/api/conversations/${conversationId}/config`;
     const { data } = await openHands.get<{ runtime_id: string }>(url);
+    return data;
+  }
+
+  /**
+   * Update a V1 conversation's public flag
+   * @param conversationId The conversation ID
+   * @param isPublic Whether the conversation should be public
+   * @returns Updated conversation info
+   */
+  static async updateConversationPublicFlag(
+    conversationId: string,
+    isPublic: boolean,
+  ): Promise<V1AppConversation> {
+    const { data } = await openHands.patch<V1AppConversation>(
+      `/api/v1/app-conversations/${conversationId}`,
+      { public: isPublic },
+    );
+    return data;
+  }
+
+  /**
+   * Read a file from a specific conversation's sandbox workspace
+   * @param conversationId The conversation ID
+   * @param filePath Path to the file to read within the sandbox workspace (defaults to /workspace/project/.agents_tmp/PLAN.md)
+   * @returns The content of the file or an empty string if the file doesn't exist
+   */
+  static async readConversationFile(
+    conversationId: string,
+    filePath: string = "/workspace/project/.agents_tmp/PLAN.md",
+  ): Promise<string> {
+    const params = new URLSearchParams();
+    params.append("file_path", filePath);
+
+    const { data } = await openHands.get<string>(
+      `/api/v1/app-conversations/${conversationId}/file?${params.toString()}`,
+    );
+    return data;
+  }
+
+  /**
+   * Download a conversation trajectory as a zip file
+   * @param conversationId The conversation ID
+   * @returns A blob containing the zip file
+   */
+  static async downloadConversation(conversationId: string): Promise<Blob> {
+    const response = await openHands.get(
+      `/api/v1/app-conversations/${conversationId}/download`,
+      {
+        responseType: "blob",
+      },
+    );
+    return response.data;
+  }
+
+  /**
+   * Get all skills associated with a V1 conversation
+   * @param conversationId The conversation ID
+   * @returns The available skills associated with the conversation
+   */
+  static async getSkills(conversationId: string): Promise<GetSkillsResponse> {
+    const { data } = await openHands.get<GetSkillsResponse>(
+      `/api/v1/app-conversations/${conversationId}/skills`,
+    );
+    return data;
+  }
+
+  /**
+   * Get conversation info directly from the runtime for a V1 conversation
+   * Uses the custom runtime URL from the conversation
+   *
+   * @param conversationId The conversation ID
+   * @param conversationUrl The conversation URL (e.g., "http://localhost:54928/api/conversations/...")
+   * @param sessionApiKey Session API key for authentication (required for V1)
+   * @returns Conversation info from the runtime
+   */
+  static async getRuntimeConversation(
+    conversationId: string,
+    conversationUrl: string | null | undefined,
+    sessionApiKey?: string | null,
+  ): Promise<V1RuntimeConversationInfo> {
+    const url = this.buildRuntimeUrl(
+      conversationUrl,
+      `/api/conversations/${conversationId}`,
+    );
+    const headers = buildSessionHeaders(sessionApiKey);
+
+    const { data } = await axios.get<V1RuntimeConversationInfo>(url, {
+      headers,
+    });
     return data;
   }
 }

@@ -6,6 +6,7 @@ import type {
   ConfirmationResponseResponse,
 } from "./event-service.types";
 import { openHands } from "../open-hands-axios";
+import { OpenHandsEvent } from "#/types/v1/core";
 
 class EventService {
   /**
@@ -38,13 +39,51 @@ class EventService {
     return data;
   }
 
-  static async getEventCount(conversationId: string): Promise<number> {
-    const params = new URLSearchParams();
-    params.append("conversation_id__eq", conversationId);
-    const { data } = await openHands.get<number>(
-      `/api/v1/events/count?${params.toString()}`,
+  /**
+   * Get event count for a V1 conversation
+   * @param conversationId The conversation ID
+   * @param conversationUrl The conversation URL (e.g., "http://localhost:54928/api/conversations/...")
+   * @param sessionApiKey Session API key for authentication (required for V1)
+   * @returns The event count
+   */
+  static async getEventCount(
+    conversationId: string,
+    conversationUrl: string,
+    sessionApiKey?: string | null,
+  ): Promise<number> {
+    // Build the runtime URL using the conversation URL
+    const runtimeUrl = buildHttpBaseUrl(conversationUrl);
+
+    // Build session headers for authentication
+    const headers = buildSessionHeaders(sessionApiKey);
+
+    const { data } = await axios.get<number>(
+      `${runtimeUrl}/api/conversations/${conversationId}/events/count`,
+      { headers },
     );
     return data;
+  }
+
+  // V1 conversations — App Server REST endpoint
+  static async searchEventsV1(conversationId: string, limit = 100) {
+    const { data } = await openHands.get<{
+      items: OpenHandsEvent[];
+    }>(`/api/v1/conversation/${conversationId}/events/search`, {
+      params: { limit },
+    });
+
+    return data.items;
+  }
+
+  // V0 conversations — Legacy REST endpoint
+  static async searchEventsV0(conversationId: string, limit = 100) {
+    const { data } = await openHands.get<{
+      events: OpenHandsEvent[];
+    }>(`/api/conversations/${conversationId}/events`, {
+      params: { limit },
+    });
+
+    return data.events;
   }
 }
 export default EventService;

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import AsyncGenerator
 from uuid import UUID
 
@@ -67,7 +68,8 @@ class StoredAppConversationStartTask(Base):  # type: ignore
 class SQLAppConversationStartTaskService(AppConversationStartTaskService):
     """SQL implementation of AppConversationStartTaskService focused on db operations.
 
-    This allows storing and retrieving conversation start tasks from the database."""
+    This allows storing and retrieving conversation start tasks from the database.
+    """
 
     session: AsyncSession
     user_id: str | None = None
@@ -75,6 +77,7 @@ class SQLAppConversationStartTaskService(AppConversationStartTaskService):
     async def search_app_conversation_start_tasks(
         self,
         conversation_id__eq: UUID | None = None,
+        created_at__gte: datetime | None = None,
         sort_order: AppConversationStartTaskSortOrder = AppConversationStartTaskSortOrder.CREATED_AT_DESC,
         page_id: str | None = None,
         limit: int = 100,
@@ -93,6 +96,12 @@ class SQLAppConversationStartTaskService(AppConversationStartTaskService):
             query = query.where(
                 StoredAppConversationStartTask.app_conversation_id
                 == conversation_id__eq
+            )
+
+        # Apply created_at__gte filter
+        if created_at__gte is not None:
+            query = query.where(
+                StoredAppConversationStartTask.created_at >= created_at__gte
             )
 
         # Add sort order
@@ -127,7 +136,7 @@ class SQLAppConversationStartTaskService(AppConversationStartTaskService):
         if has_more:
             rows = rows[:limit]
 
-        items = [AppConversationStartTask(**row2dict(row)) for row in rows]
+        items = [AppConversationStartTask.model_validate(row2dict(row)) for row in rows]
 
         # Calculate next page ID
         next_page_id = None
@@ -139,6 +148,7 @@ class SQLAppConversationStartTaskService(AppConversationStartTaskService):
     async def count_app_conversation_start_tasks(
         self,
         conversation_id__eq: UUID | None = None,
+        created_at__gte: datetime | None = None,
     ) -> int:
         """Count conversation start tasks."""
         query = select(func.count(StoredAppConversationStartTask.id))
@@ -154,6 +164,12 @@ class SQLAppConversationStartTaskService(AppConversationStartTaskService):
             query = query.where(
                 StoredAppConversationStartTask.app_conversation_id
                 == conversation_id__eq
+            )
+
+        # Apply created_at__gte filter
+        if created_at__gte is not None:
+            query = query.where(
+                StoredAppConversationStartTask.created_at >= created_at__gte
             )
 
         result = await self.session.execute(query)
@@ -181,7 +197,7 @@ class SQLAppConversationStartTaskService(AppConversationStartTaskService):
         # Return tasks in the same order as requested, with None for missing ones
         return [
             (
-                AppConversationStartTask(**row2dict(tasks_by_id[task_id]))
+                AppConversationStartTask.model_validate(row2dict(tasks_by_id[task_id]))
                 if task_id in tasks_by_id
                 else None
             )
@@ -203,7 +219,7 @@ class SQLAppConversationStartTaskService(AppConversationStartTaskService):
         result = await self.session.execute(query)
         stored_task = result.scalar_one_or_none()
         if stored_task:
-            return AppConversationStartTask(**row2dict(stored_task))
+            return AppConversationStartTask.model_validate(row2dict(stored_task))
         return None
 
     async def save_app_conversation_start_task(

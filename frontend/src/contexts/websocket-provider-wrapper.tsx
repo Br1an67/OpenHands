@@ -2,6 +2,8 @@ import React from "react";
 import { WsClientProvider } from "#/context/ws-client-provider";
 import { ConversationWebSocketProvider } from "#/contexts/conversation-websocket-context";
 import { useActiveConversation } from "#/hooks/query/use-active-conversation";
+import { useSubConversations } from "#/hooks/query/use-sub-conversations";
+import { useWebSocketRecovery } from "#/hooks/use-websocket-recovery";
 
 interface WebSocketProviderWrapperProps {
   children: React.ReactNode;
@@ -36,6 +38,19 @@ export function WebSocketProviderWrapper({
 }: WebSocketProviderWrapperProps) {
   // Get conversation data for V1 provider
   const { data: conversation } = useActiveConversation();
+  // Get sub-conversation data for V1 provider
+  const { data: subConversations } = useSubConversations(
+    conversation?.sub_conversation_ids ?? [],
+  );
+
+  // Filter out null sub-conversations
+  const filteredSubConversations = subConversations?.filter(
+    (subConversation) => subConversation !== null,
+  );
+
+  // Silent recovery for V1 WebSocket disconnections
+  const { reconnectKey, handleDisconnect } =
+    useWebSocketRecovery(conversationId);
 
   if (version === 0) {
     return (
@@ -48,9 +63,13 @@ export function WebSocketProviderWrapper({
   if (version === 1) {
     return (
       <ConversationWebSocketProvider
+        key={reconnectKey}
         conversationId={conversationId}
         conversationUrl={conversation?.url}
         sessionApiKey={conversation?.session_api_key}
+        subConversationIds={conversation?.sub_conversation_ids}
+        subConversations={filteredSubConversations}
+        onDisconnect={handleDisconnect}
       >
         {children}
       </ConversationWebSocketProvider>

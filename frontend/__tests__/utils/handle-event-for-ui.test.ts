@@ -17,7 +17,7 @@ describe("handleEventForUI", () => {
     tool_call_id: "call_123",
     observation: {
       kind: "ExecuteBashObservation",
-      output: "hello\n",
+      content: [{ type: "text", text: "hello\n" }],
       command: "echo hello",
       exit_code: 0,
       error: false,
@@ -137,5 +137,73 @@ describe("handleEventForUI", () => {
       mockObservationEvent,
       anotherActionEvent,
     ]);
+  });
+
+  it("should NOT replace ThinkAction with ThinkObservation", () => {
+    const mockThinkAction: ActionEvent = {
+      id: "test-think-action-1",
+      timestamp: Date.now().toString(),
+      source: "agent",
+      thought: [{ type: "text", text: "I am thinking..." }],
+      thinking_blocks: [],
+      action: {
+        kind: "ThinkAction",
+        thought: "I am thinking...",
+      },
+      tool_name: "think",
+      tool_call_id: "call_think_1",
+      tool_call: {
+        id: "call_think_1",
+        type: "function",
+        function: {
+          name: "think",
+          arguments: "",
+        },
+      },
+      llm_response_id: "response_think",
+      security_risk: SecurityRisk.UNKNOWN,
+    };
+
+    const mockThinkObservation: ObservationEvent = {
+      id: "test-think-observation-1",
+      timestamp: Date.now().toString(),
+      source: "environment",
+      tool_name: "think",
+      tool_call_id: "call_think_1",
+      observation: {
+        kind: "ThinkObservation",
+        content: [{ type: "text", text: "Your thought has been logged." }],
+      },
+      action_id: "test-think-action-1",
+    };
+
+    const initialUiEvents = [mockMessageEvent, mockThinkAction];
+    const result = handleEventForUI(mockThinkObservation, initialUiEvents);
+
+    // ThinkObservation should NOT be added - ThinkAction should remain
+    expect(result).toEqual([mockMessageEvent, mockThinkAction]);
+    expect(result).not.toBe(initialUiEvents);
+  });
+
+  it("should NOT add ThinkObservation even when ThinkAction is not found", () => {
+    const mockThinkObservation: ObservationEvent = {
+      id: "test-think-observation-1",
+      timestamp: Date.now().toString(),
+      source: "environment",
+      tool_name: "think",
+      tool_call_id: "call_think_1",
+      observation: {
+        kind: "ThinkObservation",
+        content: [{ type: "text", text: "Your thought has been logged." }],
+      },
+      action_id: "test-think-action-not-found",
+    };
+
+    const initialUiEvents = [mockMessageEvent];
+    const result = handleEventForUI(mockThinkObservation, initialUiEvents);
+
+    // ThinkObservation should never be added to uiEvents
+    expect(result).toEqual([mockMessageEvent]);
+    expect(result).not.toBe(initialUiEvents);
   });
 });

@@ -19,7 +19,7 @@ class PRStatus(Enum):
 class UserData(BaseModel):
     user_id: int
     username: str
-    keycloak_user_id: str | None
+    keycloak_user_id: str
 
 
 @dataclass
@@ -44,8 +44,4 @@ class ResolverViewInterface(SummaryExtractionTracker):
 
     async def create_new_conversation(self, jinja_env: Environment, token: str):
         "Create a new conversation"
-        raise NotImplementedError()
-
-    def get_callback_id(self) -> str:
-        "Unique callback id for subscribription made to EventStream for fetching agent summary"
         raise NotImplementedError()

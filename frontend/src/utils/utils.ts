@@ -7,10 +7,25 @@ import { GitRepository } from "#/types/git";
 import { sanitizeQuery } from "#/utils/sanitize-query";
 import { PRODUCT_URL } from "#/utils/constants";
 import { AgentState } from "#/types/agent-state";
+import { I18nKey } from "#/i18n/declaration";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+/**
+ * Trigger a download for a provided Blob with the given filename
+ */
+export const downloadBlob = (blob: Blob, filename: string): void => {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+};
 
 /**
  * Get the numeric height value from an element's style property
@@ -182,6 +197,8 @@ export const shouldUseInstallationRepos = (
       return true;
     case "gitlab":
       return false;
+    case "azure_devops":
+      return false;
     case "github":
       return app_mode === "saas";
     default:
@@ -197,6 +214,12 @@ export const getGitProviderBaseUrl = (gitProvider: Provider): string => {
       return "https://gitlab.com";
     case "bitbucket":
       return "https://bitbucket.org";
+    case "azure_devops":
+      return "https://dev.azure.com";
+    case "forgejo":
+      // Default UI links to Codeberg unless a custom host is available in settings
+      // Note: UI link builders don't currently receive host; consider plumbing settings if needed
+      return "https://codeberg.org";
     default:
       return "";
   }
@@ -210,6 +233,8 @@ export const getGitProviderBaseUrl = (gitProvider: Provider): string => {
 export const getProviderName = (gitProvider: Provider) => {
   if (gitProvider === "gitlab") return "GitLab";
   if (gitProvider === "bitbucket") return "Bitbucket";
+  if (gitProvider === "azure_devops") return "Azure DevOps";
+  if (gitProvider === "forgejo") return "Forgejo";
   return "GitHub";
 };
 
@@ -250,10 +275,21 @@ export const constructPullRequestUrl = (
   switch (provider) {
     case "github":
       return `${baseUrl}/${repositoryName}/pull/${prNumber}`;
+    case "forgejo":
+      return `${baseUrl}/${repositoryName}/pull/${prNumber}`;
     case "gitlab":
       return `${baseUrl}/${repositoryName}/-/merge_requests/${prNumber}`;
     case "bitbucket":
       return `${baseUrl}/${repositoryName}/pull-requests/${prNumber}`;
+    case "azure_devops": {
+      // Azure DevOps format: org/project/repo
+      const parts = repositoryName.split("/");
+      if (parts.length === 3) {
+        const [org, project, repo] = parts;
+        return `${baseUrl}/${org}/${project}/_git/${repo}/pullrequest/${prNumber}`;
+      }
+      return "";
+    }
     default:
       return "";
   }
@@ -284,10 +320,21 @@ export const constructMicroagentUrl = (
   switch (gitProvider) {
     case "github":
       return `${baseUrl}/${repositoryName}/blob/main/${microagentPath}`;
+    case "forgejo":
+      return `${baseUrl}/${repositoryName}/src/branch/main/${microagentPath}`;
     case "gitlab":
       return `${baseUrl}/${repositoryName}/-/blob/main/${microagentPath}`;
     case "bitbucket":
       return `${baseUrl}/${repositoryName}/src/main/${microagentPath}`;
+    case "azure_devops": {
+      // Azure DevOps format: org/project/repo
+      const parts = repositoryName.split("/");
+      if (parts.length === 3) {
+        const [org, project, repo] = parts;
+        return `${baseUrl}/${org}/${project}/_git/${repo}?path=/${microagentPath}&version=GBmain`;
+      }
+      return "";
+    }
     default:
       return "";
   }
@@ -353,10 +400,21 @@ export const constructBranchUrl = (
   switch (provider) {
     case "github":
       return `${baseUrl}/${repositoryName}/tree/${branchName}`;
+    case "forgejo":
+      return `${baseUrl}/${repositoryName}/src/branch/${branchName}`;
     case "gitlab":
       return `${baseUrl}/${repositoryName}/-/tree/${branchName}`;
     case "bitbucket":
       return `${baseUrl}/${repositoryName}/src/${branchName}`;
+    case "azure_devops": {
+      // Azure DevOps format: org/project/repo
+      const parts = repositoryName.split("/");
+      if (parts.length === 3) {
+        const [org, project, repo] = parts;
+        return `${baseUrl}/${org}/${project}/_git/${repo}?version=GB${branchName}`;
+      }
+      return "";
+    }
     default:
       return "";
   }
@@ -574,10 +632,15 @@ export const shouldIncludeRepository = (
  * @returns The query string for searching OpenHands repositories
  */
 export const getOpenHandsQuery = (provider: Provider | null): string => {
-  if (provider === "gitlab") {
-    return "openhands-config";
-  }
-  return ".openhands";
+  const providerRepositorySuffix: Record<string, string> = {
+    gitlab: "openhands-config",
+    azure_devops: "openhands-config",
+    default: ".openhands",
+  } as const;
+
+  return provider && provider in providerRepositorySuffix
+    ? providerRepositorySuffix[provider]
+    : providerRepositorySuffix.default;
 };
 
 /**
@@ -589,12 +652,7 @@ export const getOpenHandsQuery = (provider: Provider | null): string => {
 export const hasOpenHandsSuffix = (
   repo: GitRepository,
   provider: Provider | null,
-): boolean => {
-  if (provider === "gitlab") {
-    return repo.full_name.endsWith("/openhands-config");
-  }
-  return repo.full_name.endsWith("/.openhands");
-};
+): boolean => repo.full_name.endsWith(`/${getOpenHandsQuery(provider)}`);
 
 /**
  * Build headers for V1 API requests that require session authentication
@@ -610,6 +668,22 @@ export const buildSessionHeaders = (
   }
   return headers;
 };
+
+/**
+ * Check if a task is currently being polled (loading state)
+ * @param taskStatus The task status string (e.g., "WORKING", "ERROR", "READY")
+ * @returns True if the task is in a loading state (not ERROR and not READY)
+ *
+ * @example
+ * isTaskPolling("WORKING") // Returns true
+ * isTaskPolling("PREPARING_REPOSITORY") // Returns true
+ * isTaskPolling("READY") // Returns false
+ * isTaskPolling("ERROR") // Returns false
+ * isTaskPolling(null) // Returns false
+ * isTaskPolling(undefined) // Returns false
+ */
+export const isTaskPolling = (taskStatus: string | null | undefined): boolean =>
+  !!taskStatus && taskStatus !== "ERROR" && taskStatus !== "READY";
 
 /**
  * Get the appropriate color based on agent status
@@ -673,3 +747,91 @@ export const getStatusColor = (options: {
   }
   return "#BCFF8C";
 };
+
+interface GetStatusTextArgs {
+  isPausing: boolean;
+  isTask: boolean;
+  taskStatus?: string | null;
+  taskDetail?: string | null;
+  isStartingStatus: boolean;
+  isStopStatus: boolean;
+  curAgentState: AgentState;
+  errorMessage?: string | null;
+  t: (t: string) => string;
+}
+
+/**
+ * Get the server status text based on agent and task state
+ *
+ * @param options Configuration object for status text calculation
+ * @param options.isPausing Whether the agent is currently pausing
+ * @param options.isTask Whether we're polling a task
+ * @param options.taskStatus The task status string (e.g., "ERROR", "READY")
+ * @param options.taskDetail Optional task-specific detail text
+ * @param options.isStartingStatus Whether the conversation is in STARTING state
+ * @param options.isStopStatus Whether the conversation is STOPPED
+ * @param options.curAgentState The current agent state
+ * @param options.errorMessage Optional agent error message
+ * @returns Localized human-readable status text
+ *
+ * @example
+ * getStatusText({
+ *   isPausing: false,
+ *   isTask: true,
+ *   taskStatus: "WAITING_FOR_SANDBOX",
+ *   taskDetail: null,
+ *   isStartingStatus: false,
+ *   isStopStatus: false,
+ *   curAgentState: AgentState.RUNNING
+ * }) // Returns "Waiting For Sandbox"
+ */
+export function getStatusText({
+  isPausing = false,
+  isTask,
+  taskStatus,
+  taskDetail,
+  isStartingStatus,
+  isStopStatus,
+  curAgentState,
+  errorMessage,
+  t,
+}: GetStatusTextArgs): string {
+  // Show pausing status
+  if (isPausing) {
+    return t(I18nKey.COMMON$STOPPING);
+  }
+
+  // Show task status if we're polling a task
+  if (isTask && taskStatus) {
+    if (taskStatus === "ERROR") {
+      return taskDetail || t(I18nKey.CONVERSATION$ERROR_STARTING_CONVERSATION);
+    }
+
+    if (taskStatus === "READY") {
+      return t(I18nKey.CONVERSATION$READY);
+    }
+
+    // Format status text: "WAITING_FOR_SANDBOX" -> "Waiting for sandbox"
+    return (
+      taskDetail ||
+      taskStatus
+        .toLowerCase()
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+    );
+  }
+
+  if (isStartingStatus) {
+    return t(I18nKey.COMMON$STARTING);
+  }
+
+  if (isStopStatus) {
+    return t(I18nKey.COMMON$SERVER_STOPPED);
+  }
+
+  if (curAgentState === AgentState.ERROR) {
+    return errorMessage || t(I18nKey.COMMON$ERROR);
+  }
+
+  return t(I18nKey.COMMON$RUNNING);
+}

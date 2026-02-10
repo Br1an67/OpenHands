@@ -18,6 +18,7 @@ interface FinishEventMessageProps {
     onClick: () => void;
     tooltip?: string;
   }>;
+  isFromPlanningAgent?: boolean;
 }
 
 export function FinishEventMessage({
@@ -26,13 +27,22 @@ export function FinishEventMessage({
   microagentConversationId,
   microagentPRUrl,
   actions,
+  isFromPlanningAgent = false,
 }: FinishEventMessageProps) {
+  const eventContent = getEventContent(event);
+  // For FinishAction, details is always a string (getActionContent returns string)
+  const message =
+    typeof eventContent.details === "string"
+      ? eventContent.details
+      : String(eventContent.details);
+
   return (
     <>
       <ChatMessage
         type="agent"
-        message={getEventContent(event).details}
+        message={message}
         actions={actions}
+        isFromPlanningAgent={isFromPlanningAgent}
       />
       <MicroagentStatusWrapper
         microagentStatus={microagentStatus}

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { createRoutesStub, Outlet } from "react-router";
-import SettingsService from "#/settings-service/settings-service.api";
+import SettingsService from "#/api/settings-service/settings-service.api";
 import ConversationService from "#/api/conversation-service/conversation-service.api";
 import GitService from "#/api/git-service/git-service.api";
 import OptionService from "#/api/option-service/option-service.api";
@@ -71,6 +71,7 @@ beforeEach(() => {
     provider_tokens_set: {
       github: "some-token",
       gitlab: null,
+      azure_devops: null,
     },
   });
 });
@@ -176,10 +177,10 @@ describe("RepoConnector", () => {
 
   it("should render the 'add github repos' link in dropdown if saas mode and github provider is set", async () => {
     const getConfiSpy = vi.spyOn(OptionService, "getConfig");
-    // @ts-expect-error - only return the APP_MODE and APP_SLUG
+    // @ts-expect-error - only return the app_mode and github_app_slug
     getConfiSpy.mockResolvedValue({
-      APP_MODE: "saas",
-      APP_SLUG: "openhands",
+      app_mode: "saas",
+      github_app_slug: "openhands",
     });
 
     const getSettingsSpy = vi.spyOn(SettingsService, "getSettings");
@@ -223,10 +224,10 @@ describe("RepoConnector", () => {
 
   it("should not render the 'add github repos' link if github provider is not set", async () => {
     const getConfiSpy = vi.spyOn(OptionService, "getConfig");
-    // @ts-expect-error - only return the APP_MODE and APP_SLUG
+    // @ts-expect-error - only return the app_mode and github_app_slug for this test
     getConfiSpy.mockResolvedValue({
-      APP_MODE: "saas",
-      APP_SLUG: "openhands",
+      app_mode: "saas",
+      github_app_slug: "openhands",
     });
 
     const getSettingsSpy = vi.spyOn(SettingsService, "getSettings");
@@ -268,9 +269,9 @@ describe("RepoConnector", () => {
 
   it("should not render the 'add github repos' link in dropdown if oss mode", async () => {
     const getConfiSpy = vi.spyOn(OptionService, "getConfig");
-    // @ts-expect-error - only return the APP_MODE
+    // @ts-expect-error - only return the app_mode
     getConfiSpy.mockResolvedValue({
-      APP_MODE: "oss",
+      app_mode: "oss",
     });
 
     const getSettingsSpy = vi.spyOn(SettingsService, "getSettings");
@@ -403,7 +404,7 @@ describe("RepoConnector", () => {
       ConversationService,
       "createConversation",
     );
-    createConversationSpy.mockImplementation(() => new Promise(() => {})); // Never resolves to keep loading state
+    createConversationSpy.mockImplementation(() => new Promise(() => { })); // Never resolves to keep loading state
     const retrieveUserGitRepositoriesSpy = vi.spyOn(
       GitService,
       "retrieveUserGitRepositories",

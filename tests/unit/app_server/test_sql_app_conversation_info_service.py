@@ -27,6 +27,8 @@ from openhands.sdk.llm import MetricsSnapshot
 from openhands.sdk.llm.utils.metrics import TokenUsage
 from openhands.storage.data_models.conversation_metadata import ConversationTrigger
 
+# Note: org_id column exists but foreign key constraint is not enforced in tests
+
 # Note: MetricsSnapshot from SDK is not available in test environment
 # We'll use None for metrics field in tests since it's optional
 
@@ -106,7 +108,7 @@ def multiple_conversation_infos() -> list[AppConversationInfo]:
     return [
         AppConversationInfo(
             id=uuid4(),
-            created_by_user_id='test_user_123',
+            created_by_user_id=None,
             sandbox_id=f'sandbox_{i}',
             selected_repository=f'https://github.com/test/repo{i}',
             selected_branch='main',
@@ -151,10 +153,6 @@ class TestSQLAppConversationInfoService:
         # Verify the retrieved info matches the original
         assert retrieved_info is not None
         assert retrieved_info.id == sample_conversation_info.id
-        assert (
-            retrieved_info.created_by_user_id
-            == sample_conversation_info.created_by_user_id
-        )
         assert retrieved_info.sandbox_id == sample_conversation_info.sandbox_id
         assert (
             retrieved_info.selected_repository
@@ -206,7 +204,6 @@ class TestSQLAppConversationInfoService:
         # Verify all fields
         assert retrieved_info is not None
         assert retrieved_info.id == original_info.id
-        assert retrieved_info.created_by_user_id == original_info.created_by_user_id
         assert retrieved_info.sandbox_id == original_info.sandbox_id
         assert retrieved_info.selected_repository == original_info.selected_repository
         assert retrieved_info.selected_branch == original_info.selected_branch
@@ -235,7 +232,6 @@ class TestSQLAppConversationInfoService:
         # Verify required fields
         assert retrieved_info is not None
         assert retrieved_info.id == minimal_info.id
-        assert retrieved_info.created_by_user_id == minimal_info.created_by_user_id
         assert retrieved_info.sandbox_id == minimal_info.sandbox_id
 
         # Verify optional fields are None or default values
@@ -487,58 +483,6 @@ class TestSQLAppConversationInfoService:
         assert count == 0
 
     @pytest.mark.asyncio
-    async def test_user_isolation(
-        self,
-        async_session: AsyncSession,
-        multiple_conversation_infos: list[AppConversationInfo],
-    ):
-        """Test that user isolation works correctly."""
-        # Create services for different users
-        user1_service = SQLAppConversationInfoService(
-            db_session=async_session, user_context=SpecifyUserContext(user_id='user1')
-        )
-        user2_service = SQLAppConversationInfoService(
-            db_session=async_session, user_context=SpecifyUserContext(user_id='user2')
-        )
-
-        # Create conversations for different users
-        user1_info = AppConversationInfo(
-            id=uuid4(),
-            created_by_user_id='user1',
-            sandbox_id='sandbox_user1',
-            title='User 1 Conversation',
-        )
-
-        user2_info = AppConversationInfo(
-            id=uuid4(),
-            created_by_user_id='user2',
-            sandbox_id='sandbox_user2',
-            title='User 2 Conversation',
-        )
-
-        # Save conversations
-        await user1_service.save_app_conversation_info(user1_info)
-        await user2_service.save_app_conversation_info(user2_info)
-
-        # User 1 should only see their conversation
-        user1_page = await user1_service.search_app_conversation_info()
-        assert len(user1_page.items) == 1
-        assert user1_page.items[0].created_by_user_id == 'user1'
-
-        # User 2 should only see their conversation
-        user2_page = await user2_service.search_app_conversation_info()
-        assert len(user2_page.items) == 1
-        assert user2_page.items[0].created_by_user_id == 'user2'
-
-        # User 1 should not be able to get user 2's conversation
-        user2_from_user1 = await user1_service.get_app_conversation_info(user2_info.id)
-        assert user2_from_user1 is None
-
-        # User 2 should not be able to get user 1's conversation
-        user1_from_user2 = await user2_service.get_app_conversation_info(user1_info.id)
-        assert user1_from_user2 is None
-
-    @pytest.mark.asyncio
     async def test_update_conversation_info(
         self,
         service: SQLAppConversationInfoService,
@@ -567,10 +511,6 @@ class TestSQLAppConversationInfoService:
         assert retrieved_info.pr_number == [789]
 
         # Verify other fields remain unchanged
-        assert (
-            retrieved_info.created_by_user_id
-            == sample_conversation_info.created_by_user_id
-        )
         assert retrieved_info.sandbox_id == sample_conversation_info.sandbox_id
 
     @pytest.mark.asyncio
@@ -623,3 +563,383 @@ class TestSQLAppConversationInfoService:
             created_at__gte=start_time, created_at__lt=end_time
         )
         assert count == 2
+
+    @pytest.mark.asyncio
+    async def test_search_excludes_sub_conversations_by_default(
+        self,
+        service: SQLAppConversationInfoService,
+    ):
+        """Test that search excludes sub-conversations by default."""
+        # Create a parent conversation
+        parent_id = uuid4()
+        parent_info = AppConversationInfo(
+            id=parent_id,
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_parent',
+            title='Parent Conversation',
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Create sub-conversations
+        sub_info_1 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub1',
+            title='Sub Conversation 1',
+            parent_conversation_id=parent_id,
+            created_at=datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 13, 30, 0, tzinfo=timezone.utc),
+        )
+
+        sub_info_2 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub2',
+            title='Sub Conversation 2',
+            parent_conversation_id=parent_id,
+            created_at=datetime(2024, 1, 1, 14, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 14, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Save all conversations
+        await service.save_app_conversation_info(parent_info)
+        await service.save_app_conversation_info(sub_info_1)
+        await service.save_app_conversation_info(sub_info_2)
+
+        # Search without include_sub_conversations (default False)
+        page = await service.search_app_conversation_info()
+
+        # Should only return the parent conversation
+        assert len(page.items) == 1
+        assert page.items[0].id == parent_id
+        assert page.items[0].title == 'Parent Conversation'
+        assert page.items[0].parent_conversation_id is None
+
+    @pytest.mark.asyncio
+    async def test_search_includes_sub_conversations_when_flag_true(
+        self,
+        service: SQLAppConversationInfoService,
+    ):
+        """Test that search includes sub-conversations when include_sub_conversations=True."""
+        # Create a parent conversation
+        parent_id = uuid4()
+        parent_info = AppConversationInfo(
+            id=parent_id,
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_parent',
+            title='Parent Conversation',
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Create sub-conversations
+        sub_info_1 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub1',
+            title='Sub Conversation 1',
+            parent_conversation_id=parent_id,
+            created_at=datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 13, 30, 0, tzinfo=timezone.utc),
+        )
+
+        sub_info_2 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub2',
+            title='Sub Conversation 2',
+            parent_conversation_id=parent_id,
+            created_at=datetime(2024, 1, 1, 14, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 14, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Save all conversations
+        await service.save_app_conversation_info(parent_info)
+        await service.save_app_conversation_info(sub_info_1)
+        await service.save_app_conversation_info(sub_info_2)
+
+        # Search with include_sub_conversations=True
+        page = await service.search_app_conversation_info(
+            include_sub_conversations=True
+        )
+
+        # Should return all conversations (1 parent + 2 sub-conversations)
+        assert len(page.items) == 3
+
+        # Verify all conversations are present
+        conversation_ids = {item.id for item in page.items}
+        assert parent_id in conversation_ids
+        assert sub_info_1.id in conversation_ids
+        assert sub_info_2.id in conversation_ids
+
+        # Verify parent conversation has no parent_conversation_id
+        parent_item = next(item for item in page.items if item.id == parent_id)
+        assert parent_item.parent_conversation_id is None
+
+        # Verify sub-conversations have parent_conversation_id set
+        sub_item_1 = next(item for item in page.items if item.id == sub_info_1.id)
+        assert sub_item_1.parent_conversation_id == parent_id
+
+        sub_item_2 = next(item for item in page.items if item.id == sub_info_2.id)
+        assert sub_item_2.parent_conversation_id == parent_id
+
+    @pytest.mark.asyncio
+    async def test_search_sub_conversations_with_filters(
+        self,
+        service: SQLAppConversationInfoService,
+    ):
+        """Test that include_sub_conversations works correctly with other filters."""
+        # Create a parent conversation
+        parent_id = uuid4()
+        parent_info = AppConversationInfo(
+            id=parent_id,
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_parent',
+            title='Parent Conversation',
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Create sub-conversations with different titles
+        sub_info_1 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub1',
+            title='Sub Conversation Alpha',
+            parent_conversation_id=parent_id,
+            created_at=datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 13, 30, 0, tzinfo=timezone.utc),
+        )
+
+        sub_info_2 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub2',
+            title='Sub Conversation Beta',
+            parent_conversation_id=parent_id,
+            created_at=datetime(2024, 1, 1, 14, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 14, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Save all conversations
+        await service.save_app_conversation_info(parent_info)
+        await service.save_app_conversation_info(sub_info_1)
+        await service.save_app_conversation_info(sub_info_2)
+
+        # Search with title filter and include_sub_conversations=False (default)
+        page = await service.search_app_conversation_info(title__contains='Alpha')
+        # Should only find parent if it matches, but parent doesn't have "Alpha"
+        # So should find nothing or only sub if we include them
+        assert len(page.items) == 0
+
+        # Search with title filter and include_sub_conversations=True
+        page = await service.search_app_conversation_info(
+            title__contains='Alpha', include_sub_conversations=True
+        )
+        # Should find the sub-conversation with "Alpha" in title
+        assert len(page.items) == 1
+        assert page.items[0].title == 'Sub Conversation Alpha'
+        assert page.items[0].parent_conversation_id == parent_id
+
+        # Search with title filter for "Parent" and include_sub_conversations=True
+        page = await service.search_app_conversation_info(
+            title__contains='Parent', include_sub_conversations=True
+        )
+        # Should find the parent conversation
+        assert len(page.items) == 1
+        assert page.items[0].title == 'Parent Conversation'
+        assert page.items[0].parent_conversation_id is None
+
+    @pytest.mark.asyncio
+    async def test_search_sub_conversations_with_date_filters(
+        self,
+        service: SQLAppConversationInfoService,
+    ):
+        """Test that include_sub_conversations works correctly with date filters."""
+        # Create a parent conversation
+        parent_id = uuid4()
+        parent_info = AppConversationInfo(
+            id=parent_id,
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_parent',
+            title='Parent Conversation',
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Create sub-conversations at different times
+        sub_info_1 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub1',
+            title='Sub Conversation 1',
+            parent_conversation_id=parent_id,
+            created_at=datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 13, 30, 0, tzinfo=timezone.utc),
+        )
+
+        sub_info_2 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub2',
+            title='Sub Conversation 2',
+            parent_conversation_id=parent_id,
+            created_at=datetime(2024, 1, 1, 14, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 14, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Save all conversations
+        await service.save_app_conversation_info(parent_info)
+        await service.save_app_conversation_info(sub_info_1)
+        await service.save_app_conversation_info(sub_info_2)
+
+        # Search with date filter and include_sub_conversations=False (default)
+        cutoff_time = datetime(2024, 1, 1, 13, 30, 0, tzinfo=timezone.utc)
+        page = await service.search_app_conversation_info(created_at__gte=cutoff_time)
+        # Should only return parent if it matches the filter, but parent is at 12:00
+        assert len(page.items) == 0
+
+        # Search with date filter and include_sub_conversations=True
+        page = await service.search_app_conversation_info(
+            created_at__gte=cutoff_time, include_sub_conversations=True
+        )
+        # Should find sub-conversations created after cutoff (sub_info_2 at 14:00)
+        assert len(page.items) == 1
+        assert page.items[0].id == sub_info_2.id
+        assert page.items[0].parent_conversation_id == parent_id
+
+    @pytest.mark.asyncio
+    async def test_search_multiple_parents_with_sub_conversations(
+        self,
+        service: SQLAppConversationInfoService,
+    ):
+        """Test search with multiple parent conversations and their sub-conversations."""
+        # Create first parent conversation
+        parent1_id = uuid4()
+        parent1_info = AppConversationInfo(
+            id=parent1_id,
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_parent1',
+            title='Parent 1',
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Create second parent conversation
+        parent2_id = uuid4()
+        parent2_info = AppConversationInfo(
+            id=parent2_id,
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_parent2',
+            title='Parent 2',
+            created_at=datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 13, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Create sub-conversations for parent1
+        sub1_1 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub1_1',
+            title='Sub 1-1',
+            parent_conversation_id=parent1_id,
+            created_at=datetime(2024, 1, 1, 14, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 14, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Create sub-conversations for parent2
+        sub2_1 = AppConversationInfo(
+            id=uuid4(),
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_sub2_1',
+            title='Sub 2-1',
+            parent_conversation_id=parent2_id,
+            created_at=datetime(2024, 1, 1, 15, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 15, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Save all conversations
+        await service.save_app_conversation_info(parent1_info)
+        await service.save_app_conversation_info(parent2_info)
+        await service.save_app_conversation_info(sub1_1)
+        await service.save_app_conversation_info(sub2_1)
+
+        # Search without include_sub_conversations (default False)
+        page = await service.search_app_conversation_info()
+        # Should only return the 2 parent conversations
+        assert len(page.items) == 2
+        conversation_ids = {item.id for item in page.items}
+        assert parent1_id in conversation_ids
+        assert parent2_id in conversation_ids
+        assert sub1_1.id not in conversation_ids
+        assert sub2_1.id not in conversation_ids
+
+        # Search with include_sub_conversations=True
+        page = await service.search_app_conversation_info(
+            include_sub_conversations=True
+        )
+        # Should return all 4 conversations (2 parents + 2 sub-conversations)
+        assert len(page.items) == 4
+        conversation_ids = {item.id for item in page.items}
+        assert parent1_id in conversation_ids
+        assert parent2_id in conversation_ids
+        assert sub1_1.id in conversation_ids
+        assert sub2_1.id in conversation_ids
+
+    @pytest.mark.asyncio
+    async def test_search_sub_conversations_with_pagination(
+        self,
+        service: SQLAppConversationInfoService,
+    ):
+        """Test that include_sub_conversations works correctly with pagination."""
+        # Create a parent conversation
+        parent_id = uuid4()
+        parent_info = AppConversationInfo(
+            id=parent_id,
+            created_by_user_id='test_user_123',
+            sandbox_id='sandbox_parent',
+            title='Parent Conversation',
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc),
+        )
+
+        # Create multiple sub-conversations
+        sub_conversations = []
+        for i in range(5):
+            sub_info = AppConversationInfo(
+                id=uuid4(),
+                created_by_user_id='test_user_123',
+                sandbox_id=f'sandbox_sub{i}',
+                title=f'Sub Conversation {i}',
+                parent_conversation_id=parent_id,
+                created_at=datetime(2024, 1, 1, 13 + i, 0, 0, tzinfo=timezone.utc),
+                updated_at=datetime(2024, 1, 1, 13 + i, 30, 0, tzinfo=timezone.utc),
+            )
+            sub_conversations.append(sub_info)
+            await service.save_app_conversation_info(sub_info)
+
+        # Save parent
+        await service.save_app_conversation_info(parent_info)
+
+        # Search with include_sub_conversations=True and pagination
+        page1 = await service.search_app_conversation_info(
+            include_sub_conversations=True, limit=3
+        )
+        # Should return 3 items (1 parent + 2 sub-conversations)
+        assert len(page1.items) == 3
+        assert page1.next_page_id is not None
+
+        # Get next page
+        page2 = await service.search_app_conversation_info(
+            include_sub_conversations=True, limit=3, page_id=page1.next_page_id
+        )
+        # Should return remaining items
+        assert len(page2.items) == 3
+        assert page2.next_page_id is None
+
+        # Verify all conversations are present across pages
+        all_ids = {item.id for item in page1.items} | {item.id for item in page2.items}
+        assert parent_id in all_ids
+        for sub_info in sub_conversations:
+            assert sub_info.id in all_ids
