@@ -54,9 +54,9 @@ dependencies = [
   "numpy",
   "openai==2.8",
   "openhands-aci==0.3.2",
-  "openhands-agent-server==1.11.1",
-  "openhands-sdk==1.11.1",
-  "openhands-tools==1.11.1",
+  "openhands-agent-server @ git+https://github.com/OpenHands/software-agent-sdk.git@100e9af80d0d3d496f1f2c08d02bbd96b40863ce#subdirectory=openhands-agent-server",
+  "openhands-sdk @ git+https://github.com/OpenHands/software-agent-sdk.git@100e9af80d0d3d496f1f2c08d02bbd96b40863ce#subdirectory=openhands-sdk",
+  "openhands-tools @ git+https://github.com/OpenHands/software-agent-sdk.git@100e9af80d0d3d496f1f2c08d02bbd96b40863ce#subdirectory=openhands-tools",
   "opentelemetry-api>=1.33.1",
   "opentelemetry-exporter-otlp-proto-grpc>=1.33.1",
   "pathspec>=0.12.1",
@@ -245,10 +245,10 @@ httpx-aiohttp = "^0.1.8"
 e2b-code-interpreter = { version = "^2.0.0", optional = true }
 pybase62 = "^1.0.0"
 
-# V1 dependencies
-openhands-sdk = "1.11.1"
-openhands-agent-server = "1.11.1"
-openhands-tools = "1.11.1"
+# V1 dependencies - using git commit with /hooks API support
+openhands-sdk = { git = "https://github.com/OpenHands/software-agent-sdk.git", rev = "100e9af80d0d3d496f1f2c08d02bbd96b40863ce", subdirectory = "openhands-sdk" }
+openhands-agent-server = { git = "https://github.com/OpenHands/software-agent-sdk.git", rev = "100e9af80d0d3d496f1f2c08d02bbd96b40863ce", subdirectory = "openhands-agent-server" }
+openhands-tools = { git = "https://github.com/OpenHands/software-agent-sdk.git", rev = "100e9af80d0d3d496f1f2c08d02bbd96b40863ce", subdirectory = "openhands-tools" }
 python-jose = { version = ">=3.3", extras = [ "cryptography" ] }
 sqlalchemy = { extras = [ "asyncio" ], version = "^2.0.40" }
 pg8000 = "^1.31.5"
