@@ -923,9 +923,11 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 mcp_config=mcp_config,
             )
 
-        # Add agent context
+        # Add agent context with current datetime for time awareness
         agent_context = AgentContext(
-            system_message_suffix=system_message_suffix, secrets=secrets
+            system_message_suffix=system_message_suffix,
+            secrets=secrets,
+            current_datetime=datetime.now(),
         )
         agent = agent.model_copy(update={'agent_context': agent_context})
 

@@ -3,6 +3,7 @@ import os
 import tempfile
 from abc import ABC
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, AsyncGenerator
 from uuid import UUID
@@ -149,8 +150,11 @@ class AppConversationServiceBase(AppConversationService, ABC):
                 }
             )
         else:
-            # Create new context
-            agent_context = AgentContext(skills=skills)
+            # Create new context with current datetime for time awareness
+            agent_context = AgentContext(
+                skills=skills,
+                current_datetime=datetime.now(),
+            )
             agent = agent.model_copy(update={'agent_context': agent_context})
 
         return agent
