@@ -12,6 +12,7 @@ from integrations.utils import (
     get_user_v1_enabled_setting,
 )
 from jinja2 import Environment
+from server.utils.conversation_callback_utils import update_callback_processor
 from slack_sdk import WebClient
 from storage.slack_conversation import SlackConversation
 from storage.slack_conversation_store import SlackConversationStore
@@ -402,6 +403,19 @@ class SlackUpdateExistingConversationView(SlackNewConversationView):
             raise StartingConvoException('Conversation is still starting')
 
         instructions, _ = self._get_instructions(jinja)
+
+        # Update the Slack callback processor with the message content so it knows
+        # this message originated from Slack (for privacy: don't respond to Slack
+        # if user later continues conversation via Web UI)
+        def set_slack_message_content(processor):
+            processor.last_slack_message_content = instructions
+
+        update_callback_processor(
+            self.conversation_id,
+            'SlackCallbackProcessor',
+            set_slack_message_content,
+        )
+
         user_msg = MessageAction(content=instructions)
         await conversation_manager.send_event_to_conversation(
             self.conversation_id, event_to_dict(user_msg)

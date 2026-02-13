@@ -459,3 +459,140 @@ class TestSlackCallbackProcessor:
         assert 'message_ts' in callback.processor_json
         assert 'thread_ts' in callback.processor_json
         assert 'team_id' in callback.processor_json
+
+    @patch(
+        'server.conversation_callback_processor.slack_callback_processor.get_summary_instruction'
+    )
+    @patch(
+        'server.conversation_callback_processor.slack_callback_processor.get_last_user_msg_from_conversation_manager'
+    )
+    @patch('server.conversation_callback_processor.slack_callback_processor.logger')
+    async def test_call_skips_non_slack_originated_message(
+        self,
+        mock_logger,
+        mock_get_last_user_msg,
+        mock_get_summary_instruction,
+        agent_state_changed_observation,
+        conversation_callback,
+    ):
+        """Test that the callback skips processing when last message didn't originate from Slack.
+
+        This is a privacy feature: if the user starts a conversation via Slack but then
+        continues via the Web UI, responses should NOT be sent back to Slack.
+        """
+        # Create processor with last_slack_message_content set
+        # (simulating that we know what message was sent from Slack)
+        processor = SlackCallbackProcessor(
+            slack_user_id='test_user',
+            channel_id='test_channel',
+            message_ts='test_message_ts',
+            thread_ts='test_thread_ts',
+            team_id='test_team_id',
+            last_slack_message_content='Message from Slack',
+        )
+
+        # Setup mocks - the last user message is different (came from Web UI)
+        mock_get_summary_instruction.return_value = 'Please summarize this conversation.'
+        mock_last_msg = MagicMock()
+        mock_last_msg.id = 128
+        mock_last_msg.content = 'Message from Web UI'  # Different from Slack message
+        mock_get_last_user_msg.return_value = [mock_last_msg]
+
+        # Call the method
+        await processor(
+            callback=conversation_callback,
+            observation=agent_state_changed_observation,
+        )
+
+        # Verify that we returned early - the callback should NOT be updated
+        conversation_callback.set_processor.assert_not_called()
+
+        # Verify the log message was recorded
+        mock_logger.info.assert_any_call(
+            '[Slack] Skipping Slack response - last message did not originate from Slack',
+            extra={
+                'conversation_id': conversation_callback.conversation_id,
+                'current_msg_content_preview': 'Message from Web UI',
+                'last_slack_message_content_preview': 'Message from Slack',
+            },
+        )
+
+    @patch(
+        'server.conversation_callback_processor.slack_callback_processor.get_summary_instruction'
+    )
+    @patch(
+        'server.conversation_callback_processor.slack_callback_processor.conversation_manager'
+    )
+    @patch(
+        'server.conversation_callback_processor.slack_callback_processor.get_last_user_msg_from_conversation_manager'
+    )
+    @patch(
+        'server.conversation_callback_processor.slack_callback_processor.event_to_dict'
+    )
+    async def test_call_processes_slack_originated_message(
+        self,
+        mock_event_to_dict,
+        mock_get_last_user_msg,
+        mock_conversation_manager,
+        mock_get_summary_instruction,
+        agent_state_changed_observation,
+        conversation_callback,
+    ):
+        """Test that the callback processes messages that originated from Slack."""
+        # Create processor with last_slack_message_content set
+        slack_message = 'Message from Slack'
+        processor = SlackCallbackProcessor(
+            slack_user_id='test_user',
+            channel_id='test_channel',
+            message_ts='test_message_ts',
+            thread_ts='test_thread_ts',
+            team_id='test_team_id',
+            last_slack_message_content=slack_message,
+        )
+
+        # Setup mocks - the last user message matches what was sent from Slack
+        mock_get_summary_instruction.return_value = 'Please summarize this conversation.'
+        mock_last_msg = MagicMock()
+        mock_last_msg.id = 129
+        mock_last_msg.content = slack_message  # Same as Slack message
+        mock_get_last_user_msg.return_value = [mock_last_msg]
+        mock_conversation_manager.send_event_to_conversation = AsyncMock()
+        mock_event_to_dict.return_value = {
+            'type': 'message_action',
+            'content': 'Please summarize this conversation.',
+        }
+
+        # Call the method
+        await processor(
+            callback=conversation_callback,
+            observation=agent_state_changed_observation,
+        )
+
+        # Verify that processing continued - the summary instruction was sent
+        mock_conversation_manager.send_event_to_conversation.assert_called_once()
+
+        # Verify the callback was updated
+        conversation_callback.set_processor.assert_called_once()
+
+    def test_last_slack_message_content_serialization(self):
+        """Test that last_slack_message_content is properly serialized/deserialized."""
+        original_processor = SlackCallbackProcessor(
+            slack_user_id='test_user',
+            channel_id='test_channel',
+            message_ts='test_message_ts',
+            thread_ts='test_thread_ts',
+            team_id='test_team_id',
+            last_slack_message_content='Test Slack message content',
+        )
+
+        # Serialize to JSON
+        json_data = original_processor.model_dump_json()
+
+        # Deserialize from JSON
+        deserialized_processor = SlackCallbackProcessor.model_validate_json(json_data)
+
+        # Verify the field is preserved
+        assert (
+            deserialized_processor.last_slack_message_content
+            == original_processor.last_slack_message_content
+        )

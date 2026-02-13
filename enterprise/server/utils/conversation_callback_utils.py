@@ -179,6 +179,60 @@ def register_callback_processor(
         return callback.id
 
 
+def update_callback_processor(
+    conversation_id: str,
+    processor_type: str,
+    update_fn: callable,
+) -> bool:
+    """
+    Update an active callback processor for a conversation.
+
+    This function finds an active callback of the specified type and applies
+    the update function to its processor. The updated processor is then saved
+    back to the database.
+
+    Args:
+        conversation_id: The conversation ID to update the callback for
+        processor_type: The type of processor to update (e.g., 'SlackCallbackProcessor')
+        update_fn: A function that takes a processor and modifies it in place
+
+    Returns:
+        bool: True if a callback was found and updated, False otherwise
+    """
+    with session_maker() as session:
+        callbacks = (
+            session.query(ConversationCallback)
+            .filter(
+                ConversationCallback.conversation_id == conversation_id,
+                ConversationCallback.status == CallbackStatus.ACTIVE,
+                ConversationCallback.processor_type.contains(processor_type),
+            )
+            .all()
+        )
+
+        if not callbacks:
+            return False
+
+        for callback in callbacks:
+            try:
+                processor = callback.get_processor()
+                update_fn(processor)
+                callback.set_processor(processor)
+            except Exception as e:
+                logger.error(
+                    'callback_update_failed',
+                    extra={
+                        'conversation_id': conversation_id,
+                        'callback_id': callback.id,
+                        'processor_type': callback.processor_type,
+                        'error': str(e),
+                    },
+                )
+
+        session.commit()
+        return True
+
+
 def update_active_working_seconds(
     event_store: EventStore, conversation_id: str, user_id: str, file_store: FileStore
 ):

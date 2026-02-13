@@ -319,12 +319,17 @@ class SlackManager(Manager):
                     # Summaries are generated for every messages anyways, we only need to do
                     # this subscription once for the event which kicked off the job.
 
+                    # Get the initial message content to track for privacy
+                    # (so we only respond to Slack when last message came from Slack)
+                    user_instructions, _ = slack_view._get_instructions(self.jinja_env)
+
                     processor = SlackCallbackProcessor(
                         slack_user_id=slack_view.slack_user_id,
                         channel_id=slack_view.channel_id,
                         message_ts=slack_view.message_ts,
                         thread_ts=slack_view.thread_ts,
                         team_id=slack_view.team_id,
+                        last_slack_message_content=user_instructions,
                     )
 
                     # Register the callback processor

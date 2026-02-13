@@ -31,6 +31,11 @@ class SlackCallbackProcessor(ConversationCallbackProcessor):
 
     This processor is used to send summaries of conversations to Slack channels
     when agent state changes occur.
+
+    The processor tracks the content of the last message sent from Slack to ensure
+    responses are only sent back to Slack when the user's last message originated
+    from Slack. This prevents privacy issues where a user who continues a conversation
+    via the Web UI would have their messages echoed back to Slack.
     """
 
     slack_user_id: str
@@ -39,6 +44,7 @@ class SlackCallbackProcessor(ConversationCallbackProcessor):
     thread_ts: str | None
     team_id: str
     last_user_msg_id: int | None = None
+    last_slack_message_content: str | None = None
 
     async def _send_message_to_slack(self, message: str) -> None:
         """
@@ -136,6 +142,30 @@ class SlackCallbackProcessor(ConversationCallbackProcessor):
             if current_msg_id == self.last_user_msg_id:
                 logger.info(
                     f'[Slack] Skipping processing as message ID has not changed: {current_msg_id}'
+                )
+                return
+
+            # Privacy check: Only respond to Slack if the last message originated from Slack.
+            # If user continued conversation via Web UI, don't send response back to Slack.
+            current_msg_content = last_user_msg[0].content if last_user_msg else None
+            if (
+                self.last_slack_message_content is not None
+                and current_msg_content != self.last_slack_message_content
+                and current_msg_content != summary_instruction
+            ):
+                logger.info(
+                    '[Slack] Skipping Slack response - last message did not originate from Slack',
+                    extra={
+                        'conversation_id': conversation_id,
+                        'current_msg_content_preview': (
+                            current_msg_content[:100] if current_msg_content else None
+                        ),
+                        'last_slack_message_content_preview': (
+                            self.last_slack_message_content[:100]
+                            if self.last_slack_message_content
+                            else None
+                        ),
+                    },
                 )
                 return
 
