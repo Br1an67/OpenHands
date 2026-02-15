@@ -96,8 +96,8 @@ class SlackManager(Manager):
         """Parse repo:{org}/{repo} pattern from channel description/purpose."""
         if not description:
             return None
-        # Match repo:{org}/{repo} pattern (case-insensitive)
-        pattern = r'repo:([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)'
+        # Match repo:{org}/{repo} pattern with word boundaries (case-insensitive)
+        pattern = r'\brepo:([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)\b'
         match = re.search(pattern, description, re.IGNORECASE)
         if match:
             return match.group(1)
@@ -107,6 +107,8 @@ class SlackManager(Manager):
         self, channel_id: str, bot_access_token: str
     ) -> str | None:
         """Get the default repo from channel description if set."""
+        from slack_sdk.errors import SlackApiError
+
         try:
             client = AsyncWebClient(token=bot_access_token)
             result = await client.conversations_info(channel=channel_id)
@@ -124,9 +126,14 @@ class SlackManager(Manager):
                         extra={'channel_id': channel_id, 'repo': repo},
                     )
                 return repo
-        except Exception as e:
+        except SlackApiError as e:
             logger.warning(
-                f'Failed to get channel info for default repo: {e}',
+                f'Slack API error getting channel info for default repo: {e}',
+                extra={'channel_id': channel_id},
+            )
+        except (OSError, ConnectionError) as e:
+            logger.warning(
+                f'Connection error getting channel info for default repo: {e}',
                 extra={'channel_id': channel_id},
             )
         return None

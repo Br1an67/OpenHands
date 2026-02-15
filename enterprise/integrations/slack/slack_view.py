@@ -336,6 +336,7 @@ class SlackNewConversationView(SlackViewInterface):
             if self.selected_repo and self.selected_repo != '-'
             else ''
         )
+        # Note: repo_info includes leading space, so we don't add one after it
         return f"I'm on it!{repo_info} {user_info.slack_display_name} can [track my progress here]({conversation_link})."
 
 
