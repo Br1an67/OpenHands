@@ -11,34 +11,13 @@ from typing import Annotated, AsyncGenerator, Literal
 from uuid import UUID
 
 import httpx
-
-from openhands.app_server.services.db_session_injector import set_db_session_keep_open
-from openhands.app_server.services.httpx_client_injector import (
-    set_httpx_client_keep_open,
-)
-from openhands.app_server.services.injector import InjectorState
-from openhands.app_server.user.specifiy_user_context import USER_CONTEXT_ATTR
-from openhands.app_server.user.user_context import UserContext
-
-# Handle anext compatibility for Python < 3.10
-if sys.version_info >= (3, 10):
-    from builtins import anext
-else:
-
-    async def anext(async_iterator):
-        """Compatibility function for anext in Python < 3.10"""
-        return await async_iterator.__anext__()
-
-
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openhands.app_server.app_conversation.app_conversation_info_models import (
-    AppConversationInfo,
-)
 from openhands.app_server.app_conversation.app_conversation_models import (
     AppConversation,
+    AppConversationInfo,
     AppConversationPage,
     AppConversationStartRequest,
     AppConversationStartTask,
@@ -78,11 +57,28 @@ from openhands.app_server.sandbox.sandbox_models import (
 from openhands.app_server.sandbox.sandbox_service import SandboxService
 from openhands.app_server.sandbox.sandbox_spec_models import SandboxSpecInfo
 from openhands.app_server.sandbox.sandbox_spec_service import SandboxSpecService
+from openhands.app_server.services.db_session_injector import set_db_session_keep_open
+from openhands.app_server.services.httpx_client_injector import (
+    set_httpx_client_keep_open,
+)
+from openhands.app_server.services.injector import InjectorState
+from openhands.app_server.user.specifiy_user_context import USER_CONTEXT_ATTR
+from openhands.app_server.user.user_context import UserContext
 from openhands.app_server.utils.docker_utils import (
     replace_localhost_hostname_for_docker,
 )
 from openhands.sdk.context.skills import KeywordTrigger, TaskTrigger
 from openhands.sdk.workspace.remote.async_remote_workspace import AsyncRemoteWorkspace
+
+# Handle anext compatibility for Python < 3.10
+if sys.version_info >= (3, 10):
+    from builtins import anext
+else:
+
+    async def anext(async_iterator):
+        """Compatibility function for anext in Python < 3.10"""
+        return await async_iterator.__anext__()
+
 
 router = APIRouter(prefix='/app-conversations', tags=['Conversations'])
 logger = logging.getLogger(__name__)
