@@ -990,9 +990,6 @@ class TestLoadAndMergeAllSkills:
 
     @pytest.mark.asyncio
     @patch(
-        'openhands.app_server.app_conversation.app_conversation_service_base.load_project_hooks_from_agent_server'
-    )
-    @patch(
         'openhands.app_server.app_conversation.app_conversation_service_base.load_skills_from_agent_server'
     )
     @patch(
@@ -1006,7 +1003,6 @@ class TestLoadAndMergeAllSkills:
         mock_build_sandbox_config,
         mock_build_org_config,
         mock_load_skills,
-        mock_load_hooks,
     ):
         """Test successfully loading skills from agent-server."""
         # Arrange
@@ -1031,8 +1027,6 @@ class TestLoadAndMergeAllSkills:
             skill1 = Mock(spec=Skill)
             skill1.name = 'skill1'
 
-            mock_load_hooks.return_value = None
-
             skill2 = Mock(spec=Skill)
             skill2.name = 'skill2'
 
@@ -1041,12 +1035,12 @@ class TestLoadAndMergeAllSkills:
             mock_build_sandbox_config.return_value = {'exposed_urls': []}
 
             # Act
-            skills, hook_config = await service.load_and_merge_all_skills(
+            # Act
+            skills = await service.load_and_merge_all_skills(
                 sandbox, 'owner/repo', '/workspace', 'http://localhost:8000'
             )
 
             # Assert
-            assert hook_config is None
             assert len(skills) == 2
             assert skills[0].name == 'skill1'
             assert skills[1].name == 'skill2'
@@ -1058,14 +1052,9 @@ class TestLoadAndMergeAllSkills:
 
     @pytest.mark.asyncio
     @patch(
-        'openhands.app_server.app_conversation.app_conversation_service_base.load_project_hooks_from_agent_server'
-    )
-    @patch(
         'openhands.app_server.app_conversation.app_conversation_service_base.load_skills_from_agent_server'
     )
-    async def test_returns_empty_list_when_no_agent_server_url(
-        self, mock_load_skills, mock_load_hooks
-    ):
+    async def test_returns_empty_list_when_no_agent_server_url(self, mock_load_skills):
         """Test returns empty list when agent-server URL is not available."""
         # Arrange
         mock_user_context = Mock(spec=UserContext)
@@ -1085,13 +1074,12 @@ class TestLoadAndMergeAllSkills:
 
             # Act - pass empty string to simulate no agent server URL
             # This should still call load_skills_from_agent_server but it will fail
-            skills, hook_config = await service.load_and_merge_all_skills(
+            skills = await service.load_and_merge_all_skills(
                 sandbox, 'owner/repo', '/workspace', ''
             )
 
             # Assert - should return empty list when agent_server_url is empty
             assert skills == []
-            assert hook_config is None
 
     @pytest.mark.asyncio
     @patch(
@@ -1142,9 +1130,6 @@ class TestLoadAndMergeAllSkills:
 
     @pytest.mark.asyncio
     @patch(
-        'openhands.app_server.app_conversation.app_conversation_service_base.load_project_hooks_from_agent_server'
-    )
-    @patch(
         'openhands.app_server.app_conversation.app_conversation_service_base.load_skills_from_agent_server'
     )
     @patch(
@@ -1158,7 +1143,6 @@ class TestLoadAndMergeAllSkills:
         mock_build_sandbox_config,
         mock_build_org_config,
         mock_load_skills,
-        mock_load_hooks,
     ):
         """Test handles exceptions during skill loading."""
         # Arrange
@@ -1178,15 +1162,12 @@ class TestLoadAndMergeAllSkills:
             sandbox.exposed_urls = [exposed_url]
             sandbox.session_api_key = 'test-key'
 
-            mock_load_hooks.return_value = None
-
             mock_load_skills.side_effect = Exception('Network error')
 
             # Act
-            skills, hook_config = await service.load_and_merge_all_skills(
+            skills = await service.load_and_merge_all_skills(
                 sandbox, 'owner/repo', '/workspace', 'http://localhost:8000'
             )
 
             # Assert
             assert skills == []
-            assert hook_config is None

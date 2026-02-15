@@ -67,7 +67,7 @@ class AppConversationServiceBase(AppConversationService, ABC):
         selected_repository: str | None,
         working_dir: str,
         agent_server_url: str,
-    ) -> tuple[list[Skill], HookConfig | None]:
+    ) -> list[Skill]:
         """Load skills from all sources via the agent-server.
 
         This method calls the agent-server's /api/skills endpoint to load and
@@ -92,7 +92,7 @@ class AppConversationServiceBase(AppConversationService, ABC):
 
             if not agent_server_url:
                 _logger.warning('No agent-server URL available, cannot load skills')
-                return [], None
+                return []
 
             # Build org config (authentication handled by app-server)
             org_config = await build_org_config(selected_repository, self.user_context)
@@ -119,27 +119,43 @@ class AppConversationServiceBase(AppConversationService, ABC):
                 load_org=True,
             )
 
-            # Load project hooks via agent-server (do not load user hooks in app-server)
-            project_hook_config = await load_project_hooks_from_agent_server(
-                agent_server_url=agent_server_url,
-                session_api_key=sandbox.session_api_key,
-                project_dir=project_dir,
-            )
-
-            # Return hook_config separately; caller will merge into agent payload.
-            hook_config = project_hook_config
-
             _logger.info(
                 f'Loaded {len(all_skills)} total skills from agent-server: '
                 f'{[s.name for s in all_skills]}'
             )
 
-            return all_skills, hook_config
+            return all_skills
 
         except Exception as e:
             _logger.warning(f'Failed to load skills: {e}', exc_info=True)
-            # Return empty result on failure - skills/hooks may be loaded again later if needed
-            return [], None
+            # Return empty list on failure - skills will be loaded again later if needed
+            return []
+
+    async def load_and_merge_all_hooks(
+        self,
+        sandbox: SandboxInfo,
+        selected_repository: str | None,
+        working_dir: str,
+        agent_server_url: str,
+    ) -> HookConfig | None:
+        """Load hooks from the agent-server.
+
+        App-server sets policy here (for OpenHands Cloud default is project hooks
+        only, user hooks disabled).
+        """
+        if not agent_server_url:
+            return None
+
+        project_dir = working_dir
+        if selected_repository:
+            repo_name = selected_repository.split('/')[-1]
+            project_dir = f'{working_dir}/{repo_name}'
+
+        return await load_project_hooks_from_agent_server(
+            agent_server_url=agent_server_url,
+            session_api_key=sandbox.session_api_key,
+            project_dir=project_dir,
+        )
 
     def _create_agent_with_skills(self, agent, skills: list[Skill]):
         """Create or update agent with skills in its context.
@@ -210,14 +226,16 @@ class AppConversationServiceBase(AppConversationService, ABC):
         # Load and merge all skills
         # Extract agent_server_url from remote_workspace host
         agent_server_url = remote_workspace.host
-        all_skills, hook_config = await self.load_and_merge_all_skills(
+        all_skills = await self.load_and_merge_all_skills(
             sandbox, selected_repository, working_dir, agent_server_url
         )
 
         # Update agent with skills
         agent = self._create_agent_with_skills(agent, all_skills)
 
-        # Merge hook_config into agent payload (do not load user hooks here)
+        hook_config = await self.load_and_merge_all_hooks(
+            sandbox, selected_repository, working_dir, agent_server_url
+        )
         if hook_config is not None:
             if agent.hook_config is not None:
                 agent = agent.model_copy(
