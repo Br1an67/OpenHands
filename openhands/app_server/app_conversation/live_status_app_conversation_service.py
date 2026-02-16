@@ -1164,9 +1164,19 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
 
             # Load hooks from workspace (.openhands/hooks.json)
             try:
+                _logger.info(
+                    f'Attempting to load hooks from workspace: '
+                    f'working_dir={working_dir}, selected_repository={selected_repository}'
+                )
                 hook_config = await self._load_hooks_from_workspace(
                     remote_workspace, working_dir, selected_repository
                 )
+                if hook_config:
+                    _logger.info(
+                        f'Successfully loaded hooks: {hook_config.model_dump()}'
+                    )
+                else:
+                    _logger.info('No hooks found in workspace')
             except Exception as e:
                 _logger.warning(f'Failed to load hooks: {e}', exc_info=True)
                 # Continue without hooks - don't fail conversation startup

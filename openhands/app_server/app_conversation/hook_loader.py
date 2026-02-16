@@ -58,6 +58,10 @@ async def load_hooks_from_agent_server(
     Returns:
         HookConfig if hooks.json exists and is valid, None otherwise.
     """
+    _logger.info(
+        f'load_hooks_from_agent_server called: '
+        f'agent_server_url={agent_server_url}, project_dir={project_dir}'
+    )
     try:
         # Build request payload
         payload = {
