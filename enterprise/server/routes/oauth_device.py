@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from server.utils.url_utils import get_canonical_base_url
 from storage.api_key_store import ApiKeyStore
 from storage.database import session_maker
 from storage.device_code_store import DeviceCodeStore
@@ -94,7 +95,7 @@ async def device_authorization(
             expires_in=DEVICE_CODE_EXPIRES_IN,
         )
 
-        base_url = str(http_request.base_url).rstrip('/')
+        base_url = get_canonical_base_url()
         verification_uri = f'{base_url}/oauth/device/verify'
         verification_uri_complete = (
             f'{verification_uri}?user_code={device_code_entry.user_code}'

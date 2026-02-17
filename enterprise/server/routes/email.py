@@ -8,6 +8,7 @@ from server.auth.keycloak_manager import get_keycloak_admin
 from server.auth.saas_user_auth import SaasUserAuth
 from server.routes.auth import set_response_cookie
 from server.utils.rate_limit_utils import check_rate_limit_by_user_id
+from server.utils.url_utils import build_canonical_url, is_localhost
 
 from openhands.core.logger import openhands_logger as logger
 from openhands.server.user_auth import get_user_id
@@ -76,7 +77,7 @@ async def update_email(
             response=response,
             keycloak_access_token=user_auth.access_token.get_secret_value(),
             keycloak_refresh_token=user_auth.refresh_token.get_secret_value(),
-            secure=False if request.url.hostname == 'localhost' else True,
+            secure=not is_localhost(),
             accepted_tos=user_auth.accepted_tos,
         )
 
@@ -144,8 +145,7 @@ async def verified_email(request: Request):
     user_auth: SaasUserAuth = await get_user_auth(request)
     await user_auth.refresh()  # refresh so access token has updated email
     user_auth.email_verified = True
-    scheme = 'http' if request.url.hostname == 'localhost' else 'https'
-    redirect_uri = f'{scheme}://{request.url.netloc}/settings/user'
+    redirect_uri = build_canonical_url('/settings/user')
     response = RedirectResponse(redirect_uri, status_code=302)
 
     # need to set auth cookie to the new tokens
@@ -154,7 +154,7 @@ async def verified_email(request: Request):
         response=response,
         keycloak_access_token=user_auth.access_token.get_secret_value(),
         keycloak_refresh_token=user_auth.refresh_token.get_secret_value(),
-        secure=False if request.url.hostname == 'localhost' else True,
+        secure=not is_localhost(),
         accepted_tos=user_auth.accepted_tos,
     )
 
@@ -164,11 +164,10 @@ async def verified_email(request: Request):
 
 async def verify_email(request: Request, user_id: str, is_auth_flow: bool = False):
     keycloak_admin = get_keycloak_admin()
-    scheme = 'http' if request.url.hostname == 'localhost' else 'https'
     if is_auth_flow:
-        redirect_uri = f'{scheme}://{request.url.netloc}/login?email_verified=true'
+        redirect_uri = build_canonical_url('/login?email_verified=true')
     else:
-        redirect_uri = f'{scheme}://{request.url.netloc}/api/email/verified'
+        redirect_uri = build_canonical_url('/api/email/verified')
     logger.info(f'Redirect URI: {redirect_uri}')
     await keycloak_admin.a_send_verify_email(
         user_id=user_id,

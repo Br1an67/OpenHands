@@ -20,6 +20,9 @@ from server.routes.auth import (
 
 from openhands.integrations.service_types import ProviderType
 
+# Test-specific constant for the canonical base URL used in tests
+TEST_CANONICAL_BASE_URL = 'http://localhost:8000'
+
 
 @pytest.fixture
 def mock_request():
@@ -178,6 +181,11 @@ async def test_keycloak_callback_success_with_valid_offline_token(mock_request):
         patch('server.routes.auth.set_response_cookie') as mock_set_cookie,
         patch('server.routes.auth.UserStore') as mock_user_store,
         patch('server.routes.auth.posthog') as mock_posthog,
+        patch('server.routes.auth.get_canonical_scheme', return_value='http'),
+        patch(
+            'server.routes.auth.build_canonical_redirect_uri',
+            side_effect=lambda path: f'{TEST_CANONICAL_BASE_URL}{path}',
+        ),
     ):
         # Mock user with accepted_tos
         mock_user = MagicMock()
@@ -340,6 +348,15 @@ async def test_keycloak_callback_success_without_offline_token(mock_request):
         patch('server.routes.auth.KEYCLOAK_CLIENT_ID', 'test-client'),
         patch('server.routes.auth.UserStore') as mock_user_store,
         patch('server.routes.auth.posthog') as mock_posthog,
+        patch('server.routes.auth.get_canonical_scheme', return_value='http'),
+        patch(
+            'server.routes.auth.build_canonical_redirect_uri',
+            side_effect=lambda path: f'{TEST_CANONICAL_BASE_URL}{path}',
+        ),
+        patch(
+            'server.routes.auth.build_url_encoded_redirect_uri',
+            return_value='http%3A%2F%2Flocalhost%3A8000%2Foauth%2Fkeycloak%2Foffline%2Fcallback',
+        ),
     ):
         # Mock user with accepted_tos
         mock_user = MagicMock()

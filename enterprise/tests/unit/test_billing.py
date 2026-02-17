@@ -23,6 +23,9 @@ from sqlalchemy.orm import sessionmaker
 from starlette.datastructures import URL
 from storage.stripe_customer import Base as StripeCustomerBase
 
+# Test-specific constant for the canonical base URL used in tests
+TEST_CANONICAL_BASE_URL = 'https://test.com'
+
 
 @pytest.fixture
 def engine():
@@ -205,6 +208,10 @@ async def test_create_checkout_session_success(session_maker, mock_checkout_requ
             AsyncMock(return_value={'email': 'testy@tester.com'}),
         ),
         patch('server.routes.billing.validate_billing_enabled'),
+        patch(
+            'server.routes.billing.get_canonical_base_url',
+            return_value=TEST_CANONICAL_BASE_URL,
+        ),
     ):
         mock_db_session = MagicMock()
         mock_session_maker.return_value.__enter__.return_value = mock_db_session
@@ -236,8 +243,8 @@ async def test_create_checkout_session_success(session_maker, mock_checkout_requ
             mode='payment',
             payment_method_types=['card'],
             saved_payment_method_options={'payment_method_save': 'enabled'},
-            success_url='https://test.com/api/billing/success?session_id={CHECKOUT_SESSION_ID}',
-            cancel_url='https://test.com/api/billing/cancel?session_id={CHECKOUT_SESSION_ID}',
+            success_url=f'{TEST_CANONICAL_BASE_URL}/api/billing/success?session_id={{CHECKOUT_SESSION_ID}}',
+            cancel_url=f'{TEST_CANONICAL_BASE_URL}/api/billing/cancel?session_id={{CHECKOUT_SESSION_ID}}',
         )
 
         # Verify database session creation
@@ -319,6 +326,10 @@ async def test_success_callback_success():
         patch(
             'storage.lite_llm_manager.LiteLlmManager.update_team_and_users_budget'
         ) as mock_update_budget,
+        patch(
+            'server.routes.billing.build_canonical_url',
+            side_effect=lambda path: f'{TEST_CANONICAL_BASE_URL}{path}',
+        ),
     ):
         mock_db_session = MagicMock()
         # First query: BillingSession (query().filter().filter().first())
@@ -343,7 +354,7 @@ async def test_success_callback_success():
         assert response.status_code == 302
         assert (
             response.headers['location']
-            == 'https://test.com/settings/billing?checkout=success'
+            == f'{TEST_CANONICAL_BASE_URL}/settings/billing?checkout=success'
         )
 
         # Verify LiteLLM API calls
@@ -408,7 +419,13 @@ async def test_cancel_callback_session_not_found():
     mock_request = Request(scope={'type': 'http'})
     mock_request._base_url = URL('http://test.com/')
 
-    with patch('server.routes.billing.session_maker') as mock_session_maker:
+    with (
+        patch('server.routes.billing.session_maker') as mock_session_maker,
+        patch(
+            'server.routes.billing.build_canonical_url',
+            side_effect=lambda path: f'{TEST_CANONICAL_BASE_URL}{path}',
+        ),
+    ):
         mock_db_session = MagicMock()
         mock_db_session.query.return_value.filter.return_value.filter.return_value.first.return_value = None
         mock_session_maker.return_value.__enter__.return_value = mock_db_session
@@ -417,7 +434,7 @@ async def test_cancel_callback_session_not_found():
         assert response.status_code == 302
         assert (
             response.headers['location']
-            == 'https://test.com/settings/billing?checkout=cancel'
+            == f'{TEST_CANONICAL_BASE_URL}/settings/billing?checkout=cancel'
         )
 
         # Verify no database updates occurred
@@ -434,7 +451,13 @@ async def test_cancel_callback_success():
     mock_billing_session = MagicMock()
     mock_billing_session.status = 'in_progress'
 
-    with patch('server.routes.billing.session_maker') as mock_session_maker:
+    with (
+        patch('server.routes.billing.session_maker') as mock_session_maker,
+        patch(
+            'server.routes.billing.build_canonical_url',
+            side_effect=lambda path: f'{TEST_CANONICAL_BASE_URL}{path}',
+        ),
+    ):
         mock_db_session = MagicMock()
         mock_db_session.query.return_value.filter.return_value.filter.return_value.first.return_value = mock_billing_session
         mock_session_maker.return_value.__enter__.return_value = mock_db_session
@@ -444,7 +467,7 @@ async def test_cancel_callback_success():
         assert response.status_code == 302
         assert (
             response.headers['location']
-            == 'https://test.com/settings/billing?checkout=cancel'
+            == f'{TEST_CANONICAL_BASE_URL}/settings/billing?checkout=cancel'
         )
 
         # Verify database updates
@@ -506,6 +529,10 @@ async def test_create_customer_setup_session_success():
         ),
         patch('stripe.checkout.Session.create_async', mock_create),
         patch('server.routes.billing.validate_billing_enabled'),
+        patch(
+            'server.routes.billing.get_canonical_base_url',
+            return_value=TEST_CANONICAL_BASE_URL,
+        ),
     ):
         result = await create_customer_setup_session(mock_request, 'mock_user')
 
@@ -517,6 +544,6 @@ async def test_create_customer_setup_session_success():
             customer='mock-customer-id',
             mode='setup',
             payment_method_types=['card'],
-            success_url='https://test.com/?free_credits=success',
-            cancel_url='https://test.com/',
+            success_url=f'{TEST_CANONICAL_BASE_URL}?free_credits=success',
+            cancel_url=f'{TEST_CANONICAL_BASE_URL}',
         )

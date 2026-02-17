@@ -26,6 +26,13 @@ from server.auth.token_manager import TokenManager
 from server.config import sign_token
 from server.constants import IS_FEATURE_ENV
 from server.routes.event_webhook import _get_session_api_key, _get_user_id
+from server.utils.url_utils import (
+    build_canonical_redirect_uri,
+    build_canonical_url,
+    build_url_encoded_redirect_uri,
+    get_canonical_base_url,
+    get_canonical_scheme,
+)
 from storage.database import session_maker
 from storage.user import User
 from storage.user_store import UserStore
@@ -133,7 +140,7 @@ async def keycloak_callback(
     # Extract redirect URL and reCAPTCHA token from state
     redirect_url, recaptcha_token = _extract_recaptcha_state(state)
     if not redirect_url:
-        redirect_url = str(request.base_url)
+        redirect_url = get_canonical_base_url()
 
     if not code:
         # check if this is a forward from the account linking page
@@ -146,8 +153,8 @@ async def keycloak_callback(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={'error': 'Missing code in request params'},
         )
-    scheme = 'http' if request.url.hostname == 'localhost' else 'https'
-    redirect_uri = f'{scheme}://{request.url.netloc}{request.url.path}'
+    scheme = get_canonical_scheme()
+    redirect_uri = build_canonical_redirect_uri(request.url.path)
     logger.debug(f'code: {code}, redirect_uri: {redirect_uri}')
 
     (
@@ -204,7 +211,7 @@ async def keycloak_callback(
                     'email': email,
                 },
             )
-            error_url = f'{request.base_url}login?recaptcha_blocked=true'
+            error_url = build_canonical_url('/login?recaptcha_blocked=true')
             return RedirectResponse(error_url, status_code=302)
 
         user_ip = request.client.host if request.client else 'unknown'
@@ -235,7 +242,7 @@ async def keycloak_callback(
                     },
                 )
                 # Redirect to home with error parameter
-                error_url = f'{request.base_url}login?recaptcha_blocked=true'
+                error_url = build_canonical_url('/login?recaptcha_blocked=true')
                 return RedirectResponse(error_url, status_code=302)
 
         except Exception as e:
@@ -285,7 +292,7 @@ async def keycloak_callback(
                     )
 
                 # Redirect to home page with query parameter indicating the issue
-                home_url = f'{request.base_url}/login?duplicated_email=true'
+                home_url = build_canonical_url('/login?duplicated_email=true')
                 return RedirectResponse(home_url, status_code=302)
         except Exception as e:
             # Log error but allow signup to proceed (fail open)
@@ -302,7 +309,9 @@ async def keycloak_callback(
         from server.routes.email import verify_email
 
         await verify_email(request=request, user_id=user_id, is_auth_flow=True)
-        redirect_url = f'{request.base_url}login?email_verification_required=true&user_id={user_id}'
+        redirect_url = build_canonical_url(
+            f'/login?email_verification_required=true&user_id={user_id}'
+        )
         response = RedirectResponse(redirect_url, status_code=302)
         return response
 
@@ -371,11 +380,14 @@ async def keycloak_callback(
     )
 
     if not valid_offline_token:
+        encoded_callback_uri = build_url_encoded_redirect_uri(
+            '/oauth/keycloak/offline/callback'
+        )
         redirect_url = (
             f'{KEYCLOAK_SERVER_URL_EXT}/realms/{KEYCLOAK_REALM_NAME}/protocol/openid-connect/auth'
             f'?client_id={KEYCLOAK_CLIENT_ID}&response_type=code'
             f'&kc_idp_hint={idp}'
-            f'&redirect_uri={scheme}%3A%2F%2F{request.url.netloc}%2Foauth%2Fkeycloak%2Foffline%2Fcallback'
+            f'&redirect_uri={encoded_callback_uri}'
             f'&scope=openid%20email%20profile%20offline_access'
             f'&state={state}'
         )
@@ -384,8 +396,8 @@ async def keycloak_callback(
     # If the user hasn't accepted the TOS, redirect to the TOS page
     if not has_accepted_tos:
         encoded_redirect_url = quote(redirect_url, safe='')
-        tos_redirect_url = (
-            f'{request.base_url}accept-tos?redirect_url={encoded_redirect_url}'
+        tos_redirect_url = build_canonical_url(
+            f'/accept-tos?redirect_url={encoded_redirect_url}'
         )
         response = RedirectResponse(tos_redirect_url, status_code=302)
     else:
@@ -414,10 +426,7 @@ async def keycloak_offline_callback(code: str, state: str, request: Request):
             status_code=status.HTTP_400_BAD_REQUEST,
             content={'error': 'Missing code in request params'},
         )
-    scheme = 'https'
-    if request.url.hostname == 'localhost':
-        scheme = 'http'
-    redirect_uri = f'{scheme}://{request.url.netloc}{request.url.path}'
+    redirect_uri = build_canonical_redirect_uri(request.url.path)
     logger.debug(f'code: {code}, redirect_uri: {redirect_uri}')
 
     (
@@ -442,13 +451,15 @@ async def keycloak_offline_callback(code: str, state: str, request: Request):
         user_id=user_info['sub'], offline_token=keycloak_refresh_token
     )
 
-    return RedirectResponse(state if state else request.base_url, status_code=302)
+    return RedirectResponse(
+        state if state else get_canonical_base_url(), status_code=302
+    )
 
 
 @oauth_router.get('/github/callback')
 async def github_dummy_callback(request: Request):
     """Callback for GitHub that just forwards the user to the app base URL."""
-    return RedirectResponse(request.base_url, status_code=302)
+    return RedirectResponse(get_canonical_base_url(), status_code=302)
 
 
 @api_router.post('/authenticate')
@@ -495,7 +506,7 @@ async def accept_tos(request: Request):
 
     # Get redirect URL from request body
     body = await request.json()
-    redirect_url = body.get('redirect_url', str(request.base_url))
+    redirect_url = body.get('redirect_url', get_canonical_base_url())
 
     # Update user settings with TOS acceptance
     accepted_tos: datetime = datetime.now(timezone.utc)

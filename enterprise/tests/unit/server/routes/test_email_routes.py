@@ -12,6 +12,9 @@ from server.routes.email import (
     verify_email,
 )
 
+# Test-specific constant for the canonical base URL used in tests
+TEST_CANONICAL_BASE_URL = 'http://localhost:8000'
+
 
 @pytest.fixture
 def mock_request():
@@ -50,8 +53,14 @@ async def test_verify_email_default_behavior(mock_request):
     mock_keycloak_admin.a_send_verify_email = AsyncMock()
 
     # Act
-    with patch(
-        'server.routes.email.get_keycloak_admin', return_value=mock_keycloak_admin
+    with (
+        patch(
+            'server.routes.email.get_keycloak_admin', return_value=mock_keycloak_admin
+        ),
+        patch(
+            'server.routes.email.build_canonical_url',
+            side_effect=lambda path: f'{TEST_CANONICAL_BASE_URL}{path}',
+        ),
     ):
         await verify_email(request=mock_request, user_id=user_id)
 
@@ -60,7 +69,8 @@ async def test_verify_email_default_behavior(mock_request):
     call_args = mock_keycloak_admin.a_send_verify_email.call_args
     assert call_args.kwargs['user_id'] == user_id
     assert (
-        call_args.kwargs['redirect_uri'] == 'http://localhost:8000/api/email/verified'
+        call_args.kwargs['redirect_uri']
+        == f'{TEST_CANONICAL_BASE_URL}/api/email/verified'
     )
     assert 'client_id' in call_args.kwargs
 
@@ -74,8 +84,14 @@ async def test_verify_email_with_auth_flow(mock_request):
     mock_keycloak_admin.a_send_verify_email = AsyncMock()
 
     # Act
-    with patch(
-        'server.routes.email.get_keycloak_admin', return_value=mock_keycloak_admin
+    with (
+        patch(
+            'server.routes.email.get_keycloak_admin', return_value=mock_keycloak_admin
+        ),
+        patch(
+            'server.routes.email.build_canonical_url',
+            side_effect=lambda path: f'{TEST_CANONICAL_BASE_URL}{path}',
+        ),
     ):
         await verify_email(request=mock_request, user_id=user_id, is_auth_flow=True)
 
@@ -85,7 +101,7 @@ async def test_verify_email_with_auth_flow(mock_request):
     assert call_args.kwargs['user_id'] == user_id
     assert (
         call_args.kwargs['redirect_uri']
-        == 'http://localhost:8000/login?email_verified=true'
+        == f'{TEST_CANONICAL_BASE_URL}/login?email_verified=true'
     )
     assert 'client_id' in call_args.kwargs
 
@@ -121,13 +137,18 @@ async def test_verified_email_default_redirect(mock_request, mock_user_auth):
     with (
         patch('server.routes.email.get_user_auth', return_value=mock_user_auth),
         patch('server.routes.email.set_response_cookie') as mock_set_cookie,
+        patch(
+            'server.routes.email.build_canonical_url',
+            side_effect=lambda path: f'{TEST_CANONICAL_BASE_URL}{path}',
+        ),
+        patch('server.routes.email.is_localhost', return_value=True),
     ):
         result = await verified_email(mock_request)
 
     # Assert
     assert isinstance(result, RedirectResponse)
     assert result.status_code == 302
-    assert result.headers['location'] == 'http://localhost:8000/settings/user'
+    assert result.headers['location'] == f'{TEST_CANONICAL_BASE_URL}/settings/user'
     mock_user_auth.refresh.assert_called_once()
     mock_set_cookie.assert_called_once()
     assert mock_user_auth.email_verified is True
