@@ -281,7 +281,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             )
             # Log hook_config to verify it's being passed
             hook_config_in_request = body_json.get('hook_config')
-            _logger.info(
+            _logger.debug(
                 f'Sending StartConversationRequest with hook_config: '
                 f'{hook_config_in_request}'
             )
@@ -1211,7 +1211,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                     remote_workspace, working_dir, selected_repository
                 )
                 if hook_config:
-                    _logger.info(
+                    _logger.debug(
                         f'Successfully loaded hooks: {hook_config.model_dump()}'
                     )
                 else:
