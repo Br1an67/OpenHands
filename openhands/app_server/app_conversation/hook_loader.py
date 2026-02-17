@@ -44,7 +44,7 @@ async def load_hooks_from_agent_server(
     agent_server_url: str,
     session_api_key: str | None,
     project_dir: str,
-    httpx_client: httpx.AsyncClient | None = None,
+    httpx_client: httpx.AsyncClient,
 ) -> HookConfig | None:
     """Load hooks from the agent-server.
 
@@ -55,6 +55,7 @@ async def load_hooks_from_agent_server(
         agent_server_url: URL of the agent server (e.g., 'http://localhost:8000')
         session_api_key: Session API key for authentication (optional)
         project_dir: Workspace directory path for project hooks
+        httpx_client: Shared HTTP client for making the request
 
     Returns:
         HookConfig if hooks.json exists and is valid, None otherwise.
@@ -75,27 +76,15 @@ async def load_hooks_from_agent_server(
             headers['X-Session-API-Key'] = session_api_key
 
         # Make API request
-        if httpx_client is None:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f'{agent_server_url}/api/hooks',
-                    json=payload,
-                    headers=headers,
-                    timeout=30.0,
-                )
-                response.raise_for_status()
+        response = await httpx_client.post(
+            f'{agent_server_url}/api/hooks',
+            json=payload,
+            headers=headers,
+            timeout=30.0,
+        )
+        response.raise_for_status()
 
-                data = response.json()
-        else:
-            response = await httpx_client.post(
-                f'{agent_server_url}/api/hooks',
-                json=payload,
-                headers=headers,
-                timeout=30.0,
-            )
-            response.raise_for_status()
-
-            data = response.json()
+        data = response.json()
 
         # Extract hook_config from response
         hook_config_data = data.get('hook_config')
