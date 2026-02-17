@@ -652,13 +652,19 @@ async def get_conversation_hooks(
     sandbox_spec_service: SandboxSpecService = sandbox_spec_service_dependency,
     httpx_client: httpx.AsyncClient = httpx_client_dependency,
 ) -> JSONResponse:
-    """Get all hooks associated with the conversation.
+    """Get hooks currently configured in the workspace for this conversation.
 
-    This endpoint returns all hooks that are loaded for the v1 conversation.
-    Hooks are loaded from the workspace's .openhands/hooks.json file.
+    This endpoint loads hooks from the conversation's project directory in the
+    workspace (i.e. `{project_dir}/.openhands/hooks.json`) at request time.
+
+    Note:
+        This is intentionally a "live" view of the workspace configuration.
+        If `.openhands/hooks.json` changes over time, this endpoint reflects the
+        latest file content and may not match the hooks that were used when the
+        conversation originally started.
 
     Returns:
-        JSONResponse: A JSON response containing the list of hooks.
+        JSONResponse: A JSON response containing the list of hook event types.
     """
     try:
         # Get agent server context (conversation, sandbox, sandbox_spec, agent_server_url)
@@ -671,28 +677,23 @@ async def get_conversation_hooks(
         if isinstance(ctx, JSONResponse):
             return ctx
 
-        # Determine project directory for hooks
         from openhands.app_server.app_conversation.hook_loader import (
-            get_project_dir_for_hooks,
-            load_hooks_from_agent_server,
-        )
-
-        project_dir = get_project_dir_for_hooks(
-            ctx.sandbox_spec.working_dir,
-            ctx.conversation.selected_repository,
+            load_hooks_for_project,
         )
 
         # Load hooks from agent-server
         logger.info(
             f'Loading hooks for conversation {conversation_id}, '
             f'agent_server_url={ctx.agent_server_url}, '
-            f'project_dir={project_dir}'
+            f'working_dir={ctx.sandbox_spec.working_dir}, '
+            f'selected_repository={ctx.conversation.selected_repository}'
         )
 
-        hook_config = await load_hooks_from_agent_server(
+        hook_config = await load_hooks_for_project(
             agent_server_url=ctx.agent_server_url,
             session_api_key=ctx.session_api_key,
-            project_dir=project_dir,
+            working_dir=ctx.sandbox_spec.working_dir,
+            selected_repository=ctx.conversation.selected_repository,
             httpx_client=httpx_client,
         )
 
@@ -702,15 +703,15 @@ async def get_conversation_hooks(
         if hook_config:
             # Define the event types to check
             event_types = [
-                ('pre_tool_use', 'Pre Tool Use'),
-                ('post_tool_use', 'Post Tool Use'),
-                ('user_prompt_submit', 'User Prompt Submit'),
-                ('session_start', 'Session Start'),
-                ('session_end', 'Session End'),
-                ('stop', 'Stop'),
+                'pre_tool_use',
+                'post_tool_use',
+                'user_prompt_submit',
+                'session_start',
+                'session_end',
+                'stop',
             ]
 
-            for field_name, display_name in event_types:
+            for field_name in event_types:
                 matchers = getattr(hook_config, field_name, [])
                 if matchers:
                     matcher_responses = []

@@ -45,10 +45,7 @@ from openhands.app_server.app_conversation.app_conversation_service_base import 
 from openhands.app_server.app_conversation.app_conversation_start_task_service import (
     AppConversationStartTaskService,
 )
-from openhands.app_server.app_conversation.hook_loader import (
-    get_project_dir_for_hooks,
-    load_hooks_from_agent_server,
-)
+from openhands.app_server.app_conversation.hook_loader import load_hooks_for_project
 from openhands.app_server.app_conversation.sql_app_conversation_info_service import (
     SQLAppConversationInfoService,
 )
@@ -1137,12 +1134,11 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             ensures that conversation startup is not blocked by hook loading failures.
             Errors are logged as warnings for debugging purposes.
         """
-        project_dir = get_project_dir_for_hooks(working_dir, selected_repository)
-
-        return await load_hooks_from_agent_server(
+        return await load_hooks_for_project(
             agent_server_url=remote_workspace.host,
             session_api_key=remote_workspace._headers.get('X-Session-API-Key'),
-            project_dir=project_dir,
+            working_dir=working_dir,
+            selected_repository=selected_repository,
             httpx_client=self.httpx_client,
         )
 
