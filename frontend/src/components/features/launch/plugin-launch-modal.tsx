@@ -5,6 +5,7 @@ import { ModalBackdrop } from "#/components/shared/modals/modal-backdrop";
 import { BrandButton } from "#/components/features/settings/brand-button";
 import { I18nKey } from "#/i18n/declaration";
 import { PluginSpec } from "#/api/conversation-service/v1-conversation-service.types";
+import { Typography } from "#/ui/typography";
 import { cn } from "#/utils/utils";
 
 interface PluginLaunchModalProps {
@@ -202,7 +203,9 @@ export function PluginLaunchModal({
           className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-base-tertiary rounded-t-lg"
           data-testid={`plugin-section-${originalIndex}`}
         >
-          <span className="font-medium">{getPluginDisplayName(plugin)}</span>
+          <Typography.Text className="font-medium">
+            {getPluginDisplayName(plugin)}
+          </Typography.Text>
           {isExpanded ? (
             <IoChevronDown className="h-5 w-5 text-tertiary" />
           ) : (
@@ -245,9 +248,9 @@ export function PluginLaunchModal({
         className="bg-base-secondary p-6 rounded-xl flex flex-col gap-4 border border-tertiary w-[500px] max-w-[90vw] max-h-[80vh]"
       >
         <div className="flex w-full items-center justify-between">
-          <h2 className="text-xl font-semibold">
+          <Typography.H2>
             {t(I18nKey.LAUNCH$MODAL_TITLE)} {modalTitle}
-          </h2>
+          </Typography.H2>
           <button
             type="button"
             onClick={onClose}
@@ -272,11 +275,11 @@ export function PluginLaunchModal({
 
           {pluginsWithoutParams.length > 0 && (
             <div className={cn(pluginsWithParams.length > 0 && "mt-4")}>
-              <h3 className="mb-2 text-sm font-medium text-tertiary">
+              <Typography.H3 className="mb-2 text-tertiary">
                 {pluginsWithParams.length > 0
                   ? t(I18nKey.LAUNCH$ADDITIONAL_PLUGINS)
                   : t(I18nKey.LAUNCH$PLUGINS)}
-              </h3>
+              </Typography.H3>
               <div className="space-y-2">
                 {pluginsWithoutParams.map((plugin, index) => (
                   <div
