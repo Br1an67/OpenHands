@@ -17,10 +17,13 @@ import { I18nKey } from "#/i18n/declaration";
 import { usePermission } from "#/hooks/organizations/use-permissions";
 import { getAvailableRolesAUserCanAssign } from "#/utils/org/permission-checks";
 import { createPermissionGuard } from "#/utils/org/permission-guard";
+import { Typography } from "#/ui/typography";
 
 export const clientLoader = createPermissionGuard(
   "invite_user_to_organization",
 );
+
+export const handle = { hideTitle: true };
 
 function ManageOrganizationMembers() {
   const { t } = useTranslation();
@@ -92,19 +95,22 @@ function ManageOrganizationMembers() {
   return (
     <div
       data-testid="manage-organization-members-settings"
-      className="flex flex-col gap-2"
+      className="flex flex-col gap-2 h-full"
     >
-      {hasPermissionToInvite && (
-        <BrandButton
-          type="button"
-          variant="secondary"
-          onClick={() => setInviteModalOpen(true)}
-          className="flex items-center gap-1"
-        >
-          <Plus size={14} />
-          {t(I18nKey.ORG$INVITE_ORG_MEMBERS)}
-        </BrandButton>
-      )}
+      <div className="flex items-center justify-between pb-6">
+        <Typography.H2>{t(I18nKey.ORG$ORGANIZATION_MEMBERS)}</Typography.H2>
+        {hasPermissionToInvite && (
+          <BrandButton
+            type="button"
+            variant="secondary"
+            onClick={() => setInviteModalOpen(true)}
+            className="flex items-center gap-1 rounded-full border-none text-sm text-white font-medium leading-5 bg-org-button hover:opacity-80 p-2"
+          >
+            <Plus size={14} />
+            {t(I18nKey.ORG$INVITE_ORG_MEMBERS)}
+          </BrandButton>
+        )}
+      </div>
 
       {inviteModalOpen &&
         ReactDOM.createPortal(
@@ -114,27 +120,34 @@ function ManageOrganizationMembers() {
           document.getElementById("portal-root") || document.body,
         )}
 
-      {organizationMembers && (
-        <ul>
-          {organizationMembers.map((member) => (
-            <li
-              key={member.user_id}
-              data-testid="member-item"
-              className="border-b border-tertiary"
-            >
-              <OrganizationMemberListItem
-                email={member.email}
-                role={member.role}
-                status={member.status}
-                hasPermissionToChangeRole={canAssignUserRole(member)}
-                availableRolesToChangeTo={availableRolesToChangeTo}
-                onRoleChange={(role) => handleRoleSelectionClick(member, role)}
-                onRemove={() => handleRemoveMember(member)}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="rounded-xl border border-org-border bg-org-background table-box-shadow flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex items-center pl-6 text-[11px] text-white font-medium leading-4 border-b border-org-divider w-full h-9">
+          {t(I18nKey.ORG$ALL_ORGANIZATION_MEMBERS)}
+        </div>
+        {organizationMembers && (
+          <ul>
+            {organizationMembers.map((member) => (
+              <li
+                key={member.user_id}
+                data-testid="member-item"
+                className="border-b border-org-divider last:border-none px-6"
+              >
+                <OrganizationMemberListItem
+                  email={member.email}
+                  role={member.role}
+                  status={member.status}
+                  hasPermissionToChangeRole={canAssignUserRole(member)}
+                  availableRolesToChangeTo={availableRolesToChangeTo}
+                  onRoleChange={(role) =>
+                    handleRoleSelectionClick(member, role)
+                  }
+                  onRemove={() => handleRemoveMember(member)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {memberToRemove && (
         <ConfirmRemoveMemberModal
