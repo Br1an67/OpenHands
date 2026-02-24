@@ -46,6 +46,12 @@ export interface OrganizationMember {
   status: "active" | "invited" | "inactive";
 }
 
+export interface OrganizationMembersPage {
+  items: OrganizationMember[];
+  current_page: number;
+  per_page: number;
+}
+
 /** org_id and user_id are provided via URL params */
 export type UpdateOrganizationMemberParams = Partial<
   Omit<OrganizationMember, "org_id" | "user_id">

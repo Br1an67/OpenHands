@@ -1,11 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
+import { LoaderCircle, Plus, Search } from "lucide-react";
 import { InviteOrganizationMemberModal } from "#/components/features/org/invite-organization-member-modal";
 import { ConfirmRemoveMemberModal } from "#/components/features/org/confirm-remove-member-modal";
 import { ConfirmUpdateRoleModal } from "#/components/features/org/confirm-update-role-modal";
 import { useOrganizationMembers } from "#/hooks/query/use-organization-members";
+import { useOrganizationMembersCount } from "#/hooks/query/use-organization-members-count";
 import { OrganizationMember, OrganizationUserRole } from "#/types/org";
 import { OrganizationMemberListItem } from "#/components/features/org/organization-member-list-item";
 import { useUpdateMemberRole } from "#/hooks/mutation/use-update-member-role";
@@ -18,6 +19,8 @@ import { usePermission } from "#/hooks/organizations/use-permissions";
 import { getAvailableRolesAUserCanAssign } from "#/utils/org/permission-checks";
 import { createPermissionGuard } from "#/utils/org/permission-guard";
 import { Typography } from "#/ui/typography";
+import { Pagination } from "#/ui/pagination";
+import { useDebounce } from "#/hooks/use-debounce";
 
 export const clientLoader = createPermissionGuard(
   "invite_user_to_organization",
@@ -27,7 +30,36 @@ export const handle = { hideTitle: true };
 
 function ManageOrganizationMembers() {
   const { t } = useTranslation();
-  const { data: organizationMembers } = useOrganizationMembers();
+
+  // Pagination and filtering state
+  const [page, setPage] = React.useState(1);
+  const [emailFilter, setEmailFilter] = React.useState("");
+  const debouncedEmailFilter = useDebounce(emailFilter, 300);
+
+  // Reset to page 1 when filter changes
+  React.useEffect(() => {
+    setPage(1);
+  }, [debouncedEmailFilter]);
+
+  const limit = 10;
+
+  const {
+    data: membersData,
+    isLoading,
+    isFetching,
+    error: membersError,
+  } = useOrganizationMembers({
+    page,
+    limit,
+    email: debouncedEmailFilter,
+  });
+
+  const { data: totalCount, error: countError } = useOrganizationMembersCount({
+    email: debouncedEmailFilter,
+  });
+
+  const hasError = membersError || countError;
+
   const { data: user } = useMe();
   const { mutate: updateMemberRole, isPending: isUpdatingRole } =
     useUpdateMemberRole();
@@ -45,6 +77,10 @@ function ManageOrganizationMembers() {
 
   const { hasPermission } = usePermission(currentUserRole);
   const hasPermissionToInvite = hasPermission("invite_user_to_organization");
+
+  // Calculate total pages
+  const totalPages =
+    totalCount !== undefined ? Math.ceil(totalCount / limit) : 0;
 
   const handleRoleSelectionClick = (
     member: OrganizationMember,
@@ -112,6 +148,26 @@ function ManageOrganizationMembers() {
         )}
       </div>
 
+      {/* Email Search Input */}
+      <div className="rounded w-80 p-3 placeholder:text-tertiary-alt bg-modal-input border-none flex items-center gap-2 mb-4">
+        <Search size={16} className="text-tertiary-alt" />
+        <input
+          data-testid="email-filter-input"
+          type="text"
+          value={emailFilter}
+          placeholder={t(I18nKey.ORG$SEARCH_BY_EMAIL)}
+          onChange={(e) => setEmailFilter(e.target.value)}
+          className="w-full text-sm leading-4 font-normal outline-none bg-transparent"
+        />
+        {isFetching && debouncedEmailFilter && (
+          <LoaderCircle
+            size={16}
+            className="text-tertiary-alt animate-spin"
+            data-testid="search-loading-indicator"
+          />
+        )}
+      </div>
+
       {inviteModalOpen &&
         ReactDOM.createPortal(
           <InviteOrganizationMemberModal
@@ -121,33 +177,74 @@ function ManageOrganizationMembers() {
         )}
 
       <div className="rounded-xl border border-org-border bg-org-background table-box-shadow flex-1 overflow-y-auto custom-scrollbar">
-        <div className="flex items-center pl-6 text-[11px] text-white font-medium leading-4 border-b border-org-divider w-full h-9">
-          {t(I18nKey.ORG$ALL_ORGANIZATION_MEMBERS)}
+        <div className="flex items-center justify-between pl-6 pr-6 text-[11px] text-white font-medium leading-4 border-b border-org-divider w-full h-9">
+          <span>{t(I18nKey.ORG$ALL_ORGANIZATION_MEMBERS)}</span>
+          {totalCount !== undefined && (
+            <span className="text-tertiary-alt">
+              {totalCount} {totalCount === 1 ? "member" : "members"}
+            </span>
+          )}
         </div>
-        {organizationMembers && (
-          <ul>
-            {organizationMembers.map((member) => (
-              <li
-                key={member.user_id}
-                data-testid="member-item"
-                className="border-b border-org-divider last:border-none px-6"
-              >
-                <OrganizationMemberListItem
-                  email={member.email}
-                  role={member.role}
-                  status={member.status}
-                  hasPermissionToChangeRole={canAssignUserRole(member)}
-                  availableRolesToChangeTo={availableRolesToChangeTo}
-                  onRoleChange={(role) =>
-                    handleRoleSelectionClick(member, role)
-                  }
-                  onRemove={() => handleRemoveMember(member)}
-                />
-              </li>
-            ))}
-          </ul>
+
+        {isLoading && (
+          <div className="flex items-center justify-center p-8 text-tertiary-alt">
+            Loading...
+          </div>
         )}
+
+        {!isLoading && hasError && (
+          <div className="flex items-center justify-center p-8 text-tertiary-alt">
+            {t(I18nKey.ORG$FAILED_TO_LOAD_MEMBERS)}
+          </div>
+        )}
+
+        {!isLoading &&
+          !hasError &&
+          membersData?.items &&
+          membersData.items.length > 0 && (
+            <ul>
+              {membersData.items.map((member) => (
+                <li
+                  key={member.user_id}
+                  data-testid="member-item"
+                  className="border-b border-org-divider last:border-none px-6"
+                >
+                  <OrganizationMemberListItem
+                    email={member.email}
+                    role={member.role}
+                    status={member.status}
+                    hasPermissionToChangeRole={canAssignUserRole(member)}
+                    availableRolesToChangeTo={availableRolesToChangeTo}
+                    onRoleChange={(role) =>
+                      handleRoleSelectionClick(member, role)
+                    }
+                    onRemove={() => handleRemoveMember(member)}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+
+        {!isLoading &&
+          !hasError &&
+          (!membersData?.items || membersData.items.length === 0) && (
+            <div className="flex items-center justify-center p-8 text-tertiary-alt">
+              {debouncedEmailFilter
+                ? t(I18nKey.ORG$NO_MEMBERS_MATCHING_FILTER)
+                : t(I18nKey.ORG$NO_MEMBERS_FOUND)}
+            </div>
+          )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <Pagination
+          currentPage={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          className="py-4"
+        />
+      )}
 
       {memberToRemove && (
         <ConfirmRemoveMemberModal

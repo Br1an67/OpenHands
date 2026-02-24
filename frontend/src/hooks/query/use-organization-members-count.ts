@@ -2,26 +2,20 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { organizationService } from "#/api/organization-service/organization-service.api";
 import { useSelectedOrganizationId } from "#/context/use-selected-organization";
 
-interface UseOrganizationMembersParams {
-  page?: number;
-  limit?: number;
+interface UseOrganizationMembersCountParams {
   email?: string;
 }
 
-export const useOrganizationMembers = ({
-  page = 1,
-  limit = 10,
+export const useOrganizationMembersCount = ({
   email,
-}: UseOrganizationMembersParams = {}) => {
+}: UseOrganizationMembersCountParams = {}) => {
   const { organizationId } = useSelectedOrganizationId();
 
   return useQuery({
-    queryKey: ["organizations", "members", organizationId, page, limit, email],
+    queryKey: ["organizations", "members", "count", organizationId, email],
     queryFn: () =>
-      organizationService.getOrganizationMembers({
+      organizationService.getOrganizationMembersCount({
         orgId: organizationId!,
-        page,
-        limit,
         email: email || undefined,
       }),
     enabled: !!organizationId,
