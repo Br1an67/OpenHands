@@ -306,3 +306,110 @@ class TestGitHandler(unittest.TestCase):
         assert not os.path.exists(sentinel), (
             'Shell injection succeeded: sentinel file was created'
         )
+
+    def test_get_git_diff_no_cwd(self):
+        """Raises ValueError('no_dir_in_git_diff') when cwd has not been set."""
+        handler = GitHandler(
+            execute_shell_fn=self._execute_command,
+            create_file_fn=self._create_file,
+        )
+        with self.assertRaises(ValueError) as ctx:
+            handler.get_git_diff('some_file.txt')
+        assert str(ctx.exception) == 'no_dir_in_git_diff'
+
+    def test_get_git_diff_double_fallback_raises(self):
+        """Raises ValueError('error_in_git_diff') when cmd differs from GIT_DIFF_CMD and still fails."""
+        # Simulate being in fallback mode: cmd != GIT_DIFF_CMD but it still fails
+        self.git_handler.git_diff_cmd = 'non-existent-command {file_path}'
+        with self.assertRaises(ValueError) as ctx:
+            self.git_handler.get_git_diff('unchanged.txt')
+        assert str(ctx.exception) == 'error_in_git_diff'
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='Windows is not supported')
+class TestGitDiffModule(unittest.TestCase):
+    """Direct unit tests for the functions in git_diff.py."""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.origin_dir = os.path.join(self.test_dir, 'origin')
+        self.local_dir = os.path.join(self.test_dir, 'local')
+        os.makedirs(self.origin_dir)
+        os.makedirs(self.local_dir)
+        self._run('git init --initial-branch=main', self.origin_dir)
+        self._run("git config user.email 'test@example.com'", self.origin_dir)
+        self._run("git config user.name 'Test User'", self.origin_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def _run(self, cmd, cwd=None):
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f'command failed {cmd!r}: {result.stderr.decode()}')
+
+    def _write(self, directory, name, content):
+        path = os.path.join(directory, name)
+        with open(path, 'w') as f:
+            f.write(content)
+        return path
+
+    def _setup_clone_with_file(self, filename, content):
+        """Commit filename into origin then clone to local_dir."""
+        self._write(self.origin_dir, filename, content)
+        self._run("git add . && git commit -m 'initial'", self.origin_dir)
+        self._run(f'git clone "{self.origin_dir}" "{self.local_dir}"')
+        self._run("git config user.email 'test@example.com'", self.local_dir)
+        self._run("git config user.name 'Test User'", self.local_dir)
+
+    def test_get_git_diff_file_too_large(self):
+        """Raises ValueError('file_to_large') when the file exceeds the size limit."""
+        self._write(self.origin_dir, 'large.txt', 'x')
+        self._run("git add . && git commit -m 'init'", self.origin_dir)
+        file_path = os.path.join(self.origin_dir, 'large.txt')
+        with patch(
+            'os.path.getsize',
+            return_value=git_diff.MAX_FILE_SIZE_FOR_GIT_DIFF + 1,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                git_diff.get_git_diff(file_path)
+        assert str(ctx.exception) == 'file_to_large'
+
+    def test_get_git_diff_no_repository(self):
+        """Raises ValueError('no_repository') when the file is outside any git repository."""
+        no_repo_dir = tempfile.mkdtemp()
+        try:
+            file_path = self._write(no_repo_dir, 'file.txt', 'content')
+            with self.assertRaises(ValueError) as ctx:
+                git_diff.get_git_diff(file_path)
+            assert str(ctx.exception) == 'no_repository'
+        finally:
+            shutil.rmtree(no_repo_dir)
+
+    def test_get_git_diff_path_with_spaces(self):
+        """A filename containing spaces is correctly quoted in the git show command."""
+        filename = 'file with spaces.txt'
+        self._setup_clone_with_file(filename, 'original content')
+        file_path = self._write(self.local_dir, filename, 'modified content')
+
+        result = git_diff.get_git_diff(file_path)
+
+        assert result['original'] == 'original content'
+        assert result['modified'] == 'modified content'
+
+    def test_get_git_diff_path_with_single_quote(self):
+        """A filename containing a single quote is correctly quoted in the git show command."""
+        filename = "it's a test.txt"
+        self._setup_clone_with_file(filename, 'original content')
+        file_path = self._write(self.local_dir, filename, 'modified content')
+
+        result = git_diff.get_git_diff(file_path)
+
+        assert result['original'] == 'original content'
+        assert result['modified'] == 'modified content'
