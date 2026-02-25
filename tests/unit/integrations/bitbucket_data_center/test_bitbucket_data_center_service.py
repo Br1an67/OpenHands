@@ -11,7 +11,6 @@ from openhands.integrations.bitbucket_data_center.bitbucket_data_center_service 
 )
 from openhands.integrations.service_types import OwnerType, User
 
-
 # ── init / BASE_URL ───────────────────────────────────────────────────────────
 
 
@@ -57,7 +56,9 @@ async def test_get_headers_basic_auth():
         token=SecretStr('user:pass'), base_domain='host.example.com'
     )
     headers = await svc._get_headers()
-    assert headers['Authorization'] == 'Basic ' + base64.b64encode(b'user:pass').decode()
+    assert (
+        headers['Authorization'] == 'Basic ' + base64.b64encode(b'user:pass').decode()
+    )
 
 
 @pytest.mark.asyncio
@@ -66,8 +67,10 @@ async def test_get_headers_bearer():
         token=SecretStr('x-token-auth:plaintoken'), base_domain='host.example.com'
     )
     headers = await svc._get_headers()
-    assert headers['Authorization'] == 'Basic ' + base64.b64encode(b'x-token-auth:plaintoken').decode()
-
+    assert (
+        headers['Authorization']
+        == 'Basic ' + base64.b64encode(b'x-token-auth:plaintoken').decode()
+    )
 
 
 # ── get_user ──────────────────────────────────────────────────────────────────

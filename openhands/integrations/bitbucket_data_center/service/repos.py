@@ -72,9 +72,7 @@ class BitbucketDCReposMixin(BitbucketDCMixinBase):
             next_start = response.get('nextPageStart', start + per_page)
             link_header = f'<{url}?start={next_start}&limit={per_page}>; rel="next"'
 
-        return [
-            self._parse_repository(repo, link_header=link_header) for repo in repos
-        ]
+        return [self._parse_repository(repo, link_header=link_header) for repo in repos]
 
     async def get_all_repositories(
         self, sort: str, app_mode: AppMode

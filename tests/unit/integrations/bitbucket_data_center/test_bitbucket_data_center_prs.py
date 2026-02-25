@@ -28,11 +28,17 @@ async def test_create_pr_payload_structure():
         'links': {'self': [{'href': 'https://host.example.com/pr/1'}]},
     }
 
-    with patch.object(svc, '_make_request', return_value=(mock_response, {})) as mock_req:
+    with patch.object(
+        svc, '_make_request', return_value=(mock_response, {})
+    ) as mock_req:
         await svc.create_pr('PROJ/myrepo', 'feature', 'main', 'My PR')
 
     _, kwargs = mock_req.call_args
-    payload = kwargs.get('params') or mock_req.call_args[1].get('params') or mock_req.call_args[0][1]
+    payload = (
+        kwargs.get('params')
+        or mock_req.call_args[1].get('params')
+        or mock_req.call_args[0][1]
+    )
     assert payload['fromRef']['id'] == 'refs/heads/feature'
     assert payload['toRef']['id'] == 'refs/heads/main'
     assert payload['fromRef']['repository']['slug'] == 'myrepo'

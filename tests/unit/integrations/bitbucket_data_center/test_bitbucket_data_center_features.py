@@ -1,6 +1,6 @@
 """Tests for BitbucketDCFeaturesMixin (get_microagent_content, _process_microagents_directory)."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import SecretStr

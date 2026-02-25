@@ -134,14 +134,18 @@ class BitbucketDCMixinBase(BaseGitService, HTTPClient):
 
         url = f'{self.BASE_URL}/users'
         try:
-            data, _ = await self._make_request(url, {'filter': self.user_id, 'avatarSize': 64})
+            data, _ = await self._make_request(
+                url, {'filter': self.user_id, 'avatarSize': 64}
+            )
             users = data.get('values', [])
             if users:
                 user = users[0]
 
                 avatar_url = user.get('avatarUrl', '')
                 if avatar_url:
-                    avatar_url = self.BASE_URL.rsplit('/rest/api/1.0', 1)[0] + avatar_url
+                    avatar_url = (
+                        self.BASE_URL.rsplit('/rest/api/1.0', 1)[0] + avatar_url
+                    )
 
                 return User(
                     id=str(user.get('id', '')),

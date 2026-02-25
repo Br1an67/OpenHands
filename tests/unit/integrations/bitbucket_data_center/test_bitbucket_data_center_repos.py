@@ -92,7 +92,9 @@ async def test_search_repositories_projects_url():
         'get_repository_details_from_repo_name',
         new=AsyncMock(return_value=svc._parse_repository(mock_repo)),
     ) as mock_detail:
-        repos = await svc.search_repositories(query, 25, 'name', 'asc', True, AppMode.SAAS)
+        repos = await svc.search_repositories(
+            query, 25, 'name', 'asc', True, AppMode.SAAS
+        )
 
     mock_detail.assert_called_once_with('PROJ/myrepo')
     assert len(repos) == 1
@@ -109,7 +111,9 @@ async def test_search_repositories_scm_url():
         'get_repository_details_from_repo_name',
         new=AsyncMock(return_value=svc._parse_repository(mock_repo)),
     ) as mock_detail:
-        repos = await svc.search_repositories(query, 25, 'name', 'asc', True, AppMode.SAAS)
+        repos = await svc.search_repositories(
+            query, 25, 'name', 'asc', True, AppMode.SAAS
+        )
 
     # project key is uppercased from 'proj' → 'PROJ'
     mock_detail.assert_called_once_with('PROJ/myrepo')
@@ -126,7 +130,9 @@ async def test_search_repositories_slash_query():
         'get_paginated_repos',
         new=AsyncMock(return_value=[svc._parse_repository(_repo_dict())]),
     ) as mock_paged:
-        repos = await svc.search_repositories(query, 25, 'name', 'asc', False, AppMode.SAAS)
+        repos = await svc.search_repositories(
+            query, 25, 'name', 'asc', False, AppMode.SAAS
+        )
 
     mock_paged.assert_called_once_with(1, 25, 'name', 'PROJ', 'myrepo')
     assert len(repos) == 1
@@ -137,8 +143,12 @@ async def test_search_repositories_plain_text():
     svc = make_service()
     mock_response = {'values': [_repo_dict()]}
 
-    with patch.object(svc, '_make_request', return_value=(mock_response, {})) as mock_req:
-        repos = await svc.search_repositories('myrepo', 25, 'name', 'asc', False, AppMode.SAAS)
+    with patch.object(
+        svc, '_make_request', return_value=(mock_response, {})
+    ) as mock_req:
+        repos = await svc.search_repositories(
+            'myrepo', 25, 'name', 'asc', False, AppMode.SAAS
+        )
 
     call_url = mock_req.call_args[0][0]
     call_params = mock_req.call_args[0][1]

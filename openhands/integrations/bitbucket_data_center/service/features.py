@@ -32,9 +32,7 @@ class BitbucketDCFeaturesMixin(BitbucketDCMixinBase):
         repo_details = await self.get_repository_details_from_repo_name(repository)
 
         if not repo_details.main_branch:
-            logger.warning(
-                f'No main branch found in repository info for {repository}.'
-            )
+            logger.warning(f'No main branch found in repository info for {repository}.')
             raise ResourceNotFoundError(
                 f'Main branch not found for repository {repository}. '
                 f'This repository may be empty or have no default branch configured.'

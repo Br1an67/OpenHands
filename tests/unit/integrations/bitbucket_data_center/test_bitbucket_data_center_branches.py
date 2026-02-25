@@ -42,7 +42,9 @@ async def test_get_paginated_branches_parses_display_id_and_commit():
     assert isinstance(res, PaginatedBranchesResponse)
     assert res.branches == [
         Branch(name='main', commit_sha='abc', protected=False, last_push_date=None),
-        Branch(name='feature/x', commit_sha='def', protected=False, last_push_date=None),
+        Branch(
+            name='feature/x', commit_sha='def', protected=False, last_push_date=None
+        ),
     ]
 
 
@@ -98,12 +100,14 @@ async def test_get_paginated_branches_total_count():
 @pytest.mark.asyncio
 async def test_search_branches_uses_filter_text():
     svc = make_service()
-    mock_response = {
-        'values': [_dc_branch('feature/my-thing', 'sha1')]
-    }
+    mock_response = {'values': [_dc_branch('feature/my-thing', 'sha1')]}
 
-    with patch.object(svc, '_make_request', return_value=(mock_response, {})) as mock_req:
-        branches = await svc.search_branches('PROJ/myrepo', query='my-thing', per_page=15)
+    with patch.object(
+        svc, '_make_request', return_value=(mock_response, {})
+    ) as mock_req:
+        branches = await svc.search_branches(
+            'PROJ/myrepo', query='my-thing', per_page=15
+        )
 
     _, call_params = mock_req.call_args[0]
     assert 'filterText' in call_params

@@ -24,7 +24,9 @@ def svc():
 @pytest.mark.asyncio
 async def test_get_pr_title_and_body(svc):
     mock_response = {'title': 'Fix the bug', 'description': 'Detailed description'}
-    with patch.object(svc, '_make_request', return_value=(mock_response, {})) as mock_req:
+    with patch.object(
+        svc, '_make_request', return_value=(mock_response, {})
+    ) as mock_req:
         title, body = await svc.get_pr_title_and_body('PROJ', 'myrepo', 42)
 
     assert title == 'Fix the bug'
@@ -114,7 +116,9 @@ async def test_get_pr_comments_respects_max(svc):
 
 @pytest.mark.asyncio
 async def test_get_pr_comments_empty(svc):
-    with patch.object(svc, '_make_request', return_value=({'values': [], 'isLastPage': True}, {})):
+    with patch.object(
+        svc, '_make_request', return_value=({'values': [], 'isLastPage': True}, {})
+    ):
         comments = await svc.get_pr_comments('PROJ', 'myrepo', 1)
 
     assert comments == []
@@ -166,7 +170,9 @@ def test_mro_includes_resolver_mixin_and_base_git_service():
     assert 'BaseGitService' in mro_names
 
     # Resolver mixin should appear before BaseGitService
-    assert mro_names.index('BitbucketDCResolverMixin') < mro_names.index('BaseGitService')
+    assert mro_names.index('BitbucketDCResolverMixin') < mro_names.index(
+        'BaseGitService'
+    )
 
     # Verify instances
     assert issubclass(BitbucketDataCenterService, BitbucketDCResolverMixin)

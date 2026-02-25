@@ -24,7 +24,9 @@ class BitbucketDCResolverMixin(BitbucketDCMixinBase):
         Returns:
             A tuple of (title, body)
         """
-        url = f'{self.BASE_URL}/projects/{owner}/repos/{repo_slug}/pull-requests/{pr_id}'
+        url = (
+            f'{self.BASE_URL}/projects/{owner}/repos/{repo_slug}/pull-requests/{pr_id}'
+        )
         response, _ = await self._make_request(url)
         title = response.get('title') or ''
         body = response.get('description') or ''
