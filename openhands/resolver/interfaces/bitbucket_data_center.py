@@ -1,5 +1,6 @@
 import base64
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -34,6 +35,10 @@ class BitbucketDataCenterPRHandler(IssueHandlerInterface):
         self.token = token
         self.username = username
 
+        # Percent-encode credentials so special characters don't break git clone URLs.
+        _user, _password = token.split(':', 1)
+        self._url_token = f'{quote(_user, safe="")}:{quote(_password, safe="")}'
+
         domain = base_domain.strip()
         domain = domain.replace('https://', '').replace('http://', '').rstrip('/')
         self.base_domain = domain
@@ -67,7 +72,7 @@ class BitbucketDataCenterPRHandler(IssueHandlerInterface):
         )
 
     def get_clone_url(self) -> str:
-        return f'https://{self.token}@{self.base_domain}/scm/{self.owner.lower()}/{self.repo}.git'
+        return f'https://{self._url_token}@{self.base_domain}/scm/{self.owner.lower()}/{self.repo}.git'
 
     def get_repo_url(self) -> str:
         return f'https://{self.base_domain}/projects/{self.owner}/repos/{self.repo}'
@@ -89,7 +94,7 @@ class BitbucketDataCenterPRHandler(IssueHandlerInterface):
         return f'{self.get_repo_url()}/compare/diff?targetBranch=refs/heads/{default}&sourceBranch=refs/heads/{branch_name}'
 
     def get_authorize_url(self) -> str:
-        return f'https://{self.token}@{self.base_domain}/'
+        return f'https://{self._url_token}@{self.base_domain}/'
 
     def get_graphql_url(self) -> str:
         # Bitbucket Data Center does not expose a GraphQL API.

@@ -1,3 +1,4 @@
+import base64
 from typing import Any
 
 import httpx
@@ -48,17 +49,10 @@ class BitbucketDCMixinBase(BaseGitService, HTTPClient):
         return self.token
 
     async def _get_headers(self) -> dict[str, str]:
-        """Get headers for Bitbucket Data Center API requests.
-
-        Uses Bearer auth with the HTTP Access token portion of the credential.
-        Passwords are not supported; use a project or personal HTTP Access token.
-        """
+        """Get headers for Bitbucket Data Center API requests."""
         token_value = self.token.get_secret_value()
-        bearer_token = token_value.split(':', 1)[1]
-        return {
-            'Authorization': f'Bearer {bearer_token}',
-            'Accept': 'application/json',
-        }
+        auth_str = base64.b64encode(token_value.encode()).decode()
+        return {'Authorization': f'Basic {auth_str}', 'Accept': 'application/json'}
 
     async def _make_request(
         self,
@@ -140,14 +134,19 @@ class BitbucketDCMixinBase(BaseGitService, HTTPClient):
 
         url = f'{self.BASE_URL}/users'
         try:
-            data, _ = await self._make_request(url, {'filter': self.user_id})
+            data, _ = await self._make_request(url, {'filter': self.user_id, 'avatarSize': 64})
             users = data.get('values', [])
             if users:
                 user = users[0]
+
+                avatar_url = user.get('avatarUrl', '')
+                if avatar_url:
+                    avatar_url = self.BASE_URL.rsplit('/rest/api/1.0', 1)[0] + avatar_url
+
                 return User(
                     id=str(user.get('id', '')),
                     login=user.get('slug', ''),
-                    avatar_url='',
+                    avatar_url=avatar_url,
                     name=user.get('displayName'),
                     email=user.get('emailAddress'),
                 )

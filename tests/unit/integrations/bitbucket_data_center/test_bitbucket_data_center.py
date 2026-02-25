@@ -51,7 +51,7 @@ def test_init_basic_auth_token(basic_auth_handler):
 
 def test_init_domain_normalization():
     h = BitbucketDataCenterPRHandler(
-        owner='PROJ', repo='r', token='t', base_domain='https://host.com/'
+        owner='PROJ', repo='r', token='user:t', base_domain='https://host.com/'
     )
     assert h.base_domain == 'host.com'
     assert h.base_url == 'https://host.com/rest/api/1.0'
@@ -85,6 +85,16 @@ def test_get_clone_url_bearer(handler):
         handler.clone_url
         == 'https://x-token-auth:mytoken@bitbucket.example.com/scm/proj/myrepo.git'
     )
+
+
+def test_get_clone_url_special_chars_encoded():
+    h = BitbucketDataCenterPRHandler(
+        owner='PROJ',
+        repo='myrepo',
+        token='user:p@ss#word',
+        base_domain='bitbucket.example.com',
+    )
+    assert h.clone_url == 'https://user:p%40ss%23word@bitbucket.example.com/scm/proj/myrepo.git'
 
 
 

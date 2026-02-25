@@ -1,5 +1,6 @@
 """Tests for BitbucketDataCenterService."""
 
+import base64
 from unittest.mock import patch
 
 import pytest
@@ -51,21 +52,21 @@ def test_explicit_user_id_not_overridden():
 
 
 @pytest.mark.asyncio
-async def test_get_headers_username_token():
+async def test_get_headers_basic_auth():
     svc = BitbucketDataCenterService(
         token=SecretStr('user:pass'), base_domain='host.example.com'
     )
     headers = await svc._get_headers()
-    assert headers['Authorization'] == 'Bearer pass'
+    assert headers['Authorization'] == 'Basic ' + base64.b64encode(b'user:pass').decode()
 
 
 @pytest.mark.asyncio
-async def test_get_headers_token_only_format():
+async def test_get_headers_bearer():
     svc = BitbucketDataCenterService(
         token=SecretStr('x-token-auth:plaintoken'), base_domain='host.example.com'
     )
     headers = await svc._get_headers()
-    assert headers['Authorization'] == 'Bearer plaintoken'
+    assert headers['Authorization'] == 'Basic ' + base64.b64encode(b'x-token-auth:plaintoken').decode()
 
 
 
@@ -100,8 +101,9 @@ async def test_get_user_with_user_id():
 
 @pytest.mark.asyncio
 async def test_get_user_without_user_id():
+    # x-token-auth tokens don't have a derivable username, so user_id stays None
     svc = BitbucketDataCenterService(
-        token=SecretStr('tok'), base_domain='host.example.com'
+        token=SecretStr('x-token-auth:mytoken'), base_domain='host.example.com'
     )
     # No user_id set — should return minimal user without API call
     with patch.object(svc, '_make_request') as mock_req:

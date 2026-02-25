@@ -60,12 +60,10 @@ class BitbucketDataCenterService(
         if token:
             self.token = token
 
-        # Derive user_id from the username portion of the token when not explicitly
-        # provided. Only HTTP Access tokens (in username:access_token format) are
-        # supported; plain passwords will not work with Bearer auth.
+        # Derive user_id from token when not explicitly provided.
         if not user_id and token:
             token_val = token.get_secret_value()
-            if ':' in token_val and not token_val.startswith('x-token-auth:'):
+            if not token_val.startswith('x-token-auth:'):
                 user_id = token_val.split(':', 1)[0]
         self.user_id = user_id
 
