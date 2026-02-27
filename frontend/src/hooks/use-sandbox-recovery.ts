@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useUnifiedResumeConversationSandbox } from "./mutation/use-unified-start-conversation";
 import { useUserProviders } from "./use-user-providers";
+import { useVisibilityChange } from "./use-visibility-change";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import { I18nKey } from "#/i18n/declaration";
 import type { ConversationStatus } from "#/types/conversation-status";
@@ -48,7 +49,13 @@ export function useSandboxRecovery({
   const isInitialLoadRef = React.useRef(true);
 
   const attemptRecovery = React.useCallback(() => {
-    // Only recover if conversation is stopped and not already resuming
+    /**
+     * Only recover if the sandbox is paused (conversation.status === stopped) and not already resuming.
+     *
+     * Note: ConversationStatus uses different terminology than SandboxStatus:
+     *   - SandboxStatus.PAUSED  → ConversationStatus.STOPPED : the runtime is not running but may be restarted
+     *   - SandboxStatus.MISSING → ConversationStatus.ARCHIVED : the runtime is not running and will not restart due to deleted files.
+     */
     if (!conversationId || conversationStatus !== "STOPPED" || isResuming) {
       return;
     }
@@ -103,25 +110,15 @@ export function useSandboxRecovery({
     }
   }, [conversationId, conversationStatus, attemptRecovery]);
 
-  // Handle tab focus (visibility change)
-  React.useEffect(() => {
-    if (!conversationId) return undefined;
-
-    const handleVisibilityChange = () => {
-      // Only trigger when tab becomes visible (user returns to tab)
-      if (document.visibilityState === "visible") {
-        if (conversationStatus === "STOPPED") {
-          attemptRecovery();
-        }
+  // Handle tab focus (visibility change) - resume when user returns to tab
+  useVisibilityChange({
+    conversationId: !!conversationId,
+    onVisible: () => {
+      if (conversationStatus === "STOPPED") {
+        attemptRecovery();
       }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [conversationId, conversationStatus, attemptRecovery]);
+    },
+  });
 
   return { isResuming, attemptRecovery };
 }
