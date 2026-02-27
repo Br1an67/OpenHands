@@ -186,18 +186,81 @@ describe("useSandboxRecovery", () => {
   });
 
   describe("tab focus recovery", () => {
-    it("should call resumeSandbox when tab becomes visible and conversation is STOPPED", () => {
+    it("should call resumeSandbox when tab becomes visible and refetch returns STOPPED", async () => {
       // Start with tab hidden
       Object.defineProperty(document, "visibilityState", {
         value: "hidden",
         writable: true,
       });
 
+      const mockRefetch = vi.fn().mockResolvedValue({
+        data: { status: "STOPPED" },
+      });
+
+      renderHook(
+        () =>
+          useSandboxRecovery({
+            conversationId: "conv-123",
+            conversationStatus: "RUNNING", // Cached status is RUNNING
+            refetchConversation: mockRefetch,
+          }),
+        { wrapper: createWrapper() },
+      );
+
+      // No initial recovery for RUNNING
+      expect(mockMutate).not.toHaveBeenCalled();
+
+      // Simulate tab becoming visible
+      Object.defineProperty(document, "visibilityState", {
+        value: "visible",
+        writable: true,
+      });
+
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      // Refetch should be called to get fresh status
+      expect(mockRefetch).toHaveBeenCalledTimes(1);
+      // Recovery should trigger because fresh status is STOPPED
+      expect(mockMutate).toHaveBeenCalledTimes(1);
+    });
+
+    it("should NOT call resumeSandbox when tab becomes visible and refetch returns RUNNING", async () => {
+      const mockRefetch = vi.fn().mockResolvedValue({
+        data: { status: "RUNNING" },
+      });
+
+      renderHook(
+        () =>
+          useSandboxRecovery({
+            conversationId: "conv-123",
+            conversationStatus: "RUNNING",
+            refetchConversation: mockRefetch,
+          }),
+        { wrapper: createWrapper() },
+      );
+
+      // No initial recovery for RUNNING
+      expect(mockMutate).not.toHaveBeenCalled();
+
+      // Simulate tab becoming visible
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      // Refetch was called but status is still RUNNING
+      expect(mockRefetch).toHaveBeenCalledTimes(1);
+      expect(mockMutate).not.toHaveBeenCalled();
+    });
+
+    it("should NOT call resumeSandbox when tab becomes visible but refetchConversation is not provided", async () => {
       renderHook(
         () =>
           useSandboxRecovery({
             conversationId: "conv-123",
             conversationStatus: "STOPPED",
+            // No refetchConversation provided
           }),
         { wrapper: createWrapper() },
       );
@@ -207,45 +270,25 @@ describe("useSandboxRecovery", () => {
       mockMutate.mockClear();
 
       // Simulate tab becoming visible
-      Object.defineProperty(document, "visibilityState", {
-        value: "visible",
-        writable: true,
-      });
-
-      act(() => {
+      await act(async () => {
         document.dispatchEvent(new Event("visibilitychange"));
       });
 
-      expect(mockMutate).toHaveBeenCalledTimes(1);
+      // No recovery on tab focus without refetchConversation
+      expect(mockMutate).not.toHaveBeenCalled();
     });
 
-    it("should NOT call resumeSandbox when tab becomes visible but conversation is RUNNING", () => {
-      renderHook(
-        () =>
-          useSandboxRecovery({
-            conversationId: "conv-123",
-            conversationStatus: "RUNNING",
-          }),
-        { wrapper: createWrapper() },
-      );
-
-      // No initial recovery for RUNNING
-      expect(mockMutate).not.toHaveBeenCalled();
-
-      // Simulate tab becoming visible
-      act(() => {
-        document.dispatchEvent(new Event("visibilitychange"));
+    it("should NOT call resumeSandbox when tab becomes hidden", async () => {
+      const mockRefetch = vi.fn().mockResolvedValue({
+        data: { status: "STOPPED" },
       });
 
-      expect(mockMutate).not.toHaveBeenCalled();
-    });
-
-    it("should NOT call resumeSandbox when tab becomes hidden", () => {
       renderHook(
         () =>
           useSandboxRecovery({
             conversationId: "conv-123",
             conversationStatus: "STOPPED",
+            refetchConversation: mockRefetch,
           }),
         { wrapper: createWrapper() },
       );
@@ -260,10 +303,12 @@ describe("useSandboxRecovery", () => {
         writable: true,
       });
 
-      act(() => {
+      await act(async () => {
         document.dispatchEvent(new Event("visibilitychange"));
       });
 
+      // Refetch should NOT be called when tab is hidden
+      expect(mockRefetch).not.toHaveBeenCalled();
       expect(mockMutate).not.toHaveBeenCalled();
     });
 
