@@ -42,7 +42,7 @@ class SetTitleCallbackProcessor(EventCallbackProcessor):
             get_httpx_client,
         )
 
-        _logger.info(f"Callback {callback.id} Invoked for event {event}")
+        _logger.info(f'Callback {callback.id} Invoked for event {event}')
 
         state = InjectorState()
         setattr(state, USER_CONTEXT_ATTR, ADMIN)
@@ -69,7 +69,7 @@ class SetTitleCallbackProcessor(EventCallbackProcessor):
                     response = await httpx_client.get(
                         app_conversation_url,
                         headers={
-                            "X-Session-API-Key": app_conversation.session_api_key,
+                            'X-Session-API-Key': app_conversation.session_api_key,
                         },
                     )
                     response.raise_for_status()
@@ -77,7 +77,7 @@ class SetTitleCallbackProcessor(EventCallbackProcessor):
                     # Network failures are acceptable - we'll retry on next message
                     pass
                 else:
-                    title = response.json().get("title")
+                    title = response.json().get('title')
                     if title:
                         break
                 if delay_s:
@@ -85,8 +85,8 @@ class SetTitleCallbackProcessor(EventCallbackProcessor):
 
             if not title:
                 _logger.info(
-                    f"Conversation {conversation_id} title not available yet; "
-                    "will retry on a future message event."
+                    f'Conversation {conversation_id} title not available yet; '
+                    'will retry on a future message event.'
                 )
                 return None
 
