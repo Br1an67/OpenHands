@@ -2,6 +2,8 @@ import { Settings } from "#/types/settings";
 
 export const LATEST_SETTINGS_VERSION = 5;
 
+export const DEFAULT_MARKETPLACE_PATH = "marketplaces/default.json";
+
 export const DEFAULT_SETTINGS: Settings = {
   llm_model: "openhands/claude-opus-4-5-20251101",
   llm_base_url: "",
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   git_user_name: "openhands",
   git_user_email: "openhands@all-hands.dev",
   v1_enabled: false,
+  marketplace_path: DEFAULT_MARKETPLACE_PATH,
 };
 
 /**

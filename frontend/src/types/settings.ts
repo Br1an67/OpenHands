@@ -66,4 +66,6 @@ export type Settings = {
   git_user_name?: string;
   git_user_email?: string;
   v1_enabled?: boolean;
+  // Path to the marketplace JSON file for public skills loading
+  marketplace_path?: string | null;
 };
