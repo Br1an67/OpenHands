@@ -98,13 +98,8 @@ function AppSettingsScreen() {
       .get("marketplace-path-input")
       ?.toString();
 
-    // Validate marketplace path before saving
-    if (!isValidMarketplacePath(marketplacePathValue || "")) {
-      displayErrorToast(t(I18nKey.SETTINGS$MARKETPLACE_PATH_INVALID));
-      return;
-    }
-
     // Parse marketplace path: empty/whitespace = null (load all skills)
+    // Note: Validation happens onChange, button is disabled when invalid
     const marketplacePath = parseMarketplacePath(marketplacePathValue);
 
     saveSettings(

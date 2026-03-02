@@ -91,6 +91,15 @@ export const isValidMarketplacePath = (value: string): boolean => {
 
   const trimmedValue = value.trim();
 
+  // Security: Block path traversal and absolute paths
+  if (
+    trimmedValue.startsWith("/") ||
+    trimmedValue.includes("..") ||
+    trimmedValue.includes("\\")
+  ) {
+    return false;
+  }
+
   // Check against both patterns
   return (
     MARKETPLACE_PATH_SIMPLE_PATTERN.test(trimmedValue) ||
