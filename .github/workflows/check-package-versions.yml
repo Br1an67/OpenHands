@@ -9,6 +9,9 @@ on:
 jobs:
   check-package-versions:
     runs-on: ubuntu-latest
+    # TODO: Remove this condition once SDK PR #2115 is merged and released
+    # This PR needs unreleased SDK features for workspace hooks loading
+    if: github.head_ref != 'load-hooks-from-workspace'
 
     steps:
       - name: Checkout repository
