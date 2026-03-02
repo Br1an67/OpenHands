@@ -4,7 +4,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-from resend.exceptions import ResendError
+from resend.exceptions import RateLimitError, ResendError
 from tenacity import RetryError
 
 # Set required environment variables before importing the module
@@ -16,6 +16,7 @@ os.environ['KEYCLOAK_REALM_NAME'] = 'test_realm'
 os.environ['KEYCLOAK_ADMIN_PASSWORD'] = 'test_password'
 
 from enterprise.sync.resend_keycloak import (  # noqa: E402
+    _is_retryable_resend_error,
     add_contact_to_resend,
     is_valid_email,
     send_welcome_email,
@@ -265,3 +266,141 @@ class TestAddContactToResend:
 
         assert result == {'id': 'contact_123'}
         assert mock_create.call_count == 2
+
+
+class TestIsRetryableResendError:
+    """Test cases for _is_retryable_resend_error function."""
+
+    def test_rate_limit_error_is_retryable(self) -> None:
+        """Test that RateLimitError exceptions trigger retries."""
+        # RateLimitError has a different signature: (message, error_type, code)
+        error = RateLimitError(
+            message='Rate limit exceeded',
+            error_type='rate_limit_exceeded',
+            code=429,
+        )
+        assert _is_retryable_resend_error(error) is True
+
+    def test_resend_error_http_client_error_is_retryable(self) -> None:
+        """Test that ResendError with error_type='HttpClientError' triggers retries.
+
+        The Resend SDK wraps requests.RequestException in ResendError with
+        error_type='HttpClientError' and code=500.
+        """
+        error = ResendError(
+            code=500,
+            message='Connection failed',
+            error_type='HttpClientError',
+            suggested_action='Retry the request',
+        )
+        assert _is_retryable_resend_error(error) is True
+
+    def test_resend_error_429_is_retryable(self) -> None:
+        """Test that ResendError with code 429 triggers retries."""
+        error = ResendError(
+            code=429,
+            message='Too many requests',
+            error_type='rate_limit_exceeded',
+            suggested_action='Wait before retrying',
+        )
+        assert _is_retryable_resend_error(error) is True
+
+    def test_resend_error_502_is_retryable(self) -> None:
+        """Test that ResendError with code 502 (Bad Gateway) triggers retries."""
+        error = ResendError(
+            code=502,
+            message='Bad Gateway',
+            error_type='gateway_error',
+            suggested_action='Retry',
+        )
+        assert _is_retryable_resend_error(error) is True
+
+    def test_resend_error_503_is_retryable(self) -> None:
+        """Test that ResendError with code 503 (Service Unavailable) triggers retries."""
+        error = ResendError(
+            code=503,
+            message='Service Unavailable',
+            error_type='service_unavailable',
+            suggested_action='Retry',
+        )
+        assert _is_retryable_resend_error(error) is True
+
+    def test_resend_error_504_is_retryable(self) -> None:
+        """Test that ResendError with code 504 (Gateway Timeout) triggers retries."""
+        error = ResendError(
+            code=504,
+            message='Gateway Timeout',
+            error_type='gateway_timeout',
+            suggested_action='Retry',
+        )
+        assert _is_retryable_resend_error(error) is True
+
+    def test_resend_error_400_not_retryable(self) -> None:
+        """Test that ResendError with code 400 (Bad Request) does NOT retry."""
+        error = ResendError(
+            code=400,
+            message='Bad Request',
+            error_type='validation_error',
+            suggested_action='Fix the request',
+        )
+        assert _is_retryable_resend_error(error) is False
+
+    def test_resend_error_401_not_retryable(self) -> None:
+        """Test that ResendError with code 401 (Unauthorized) does NOT retry."""
+        error = ResendError(
+            code=401,
+            message='Unauthorized',
+            error_type='authentication_error',
+            suggested_action='Check API key',
+        )
+        assert _is_retryable_resend_error(error) is False
+
+    def test_resend_error_404_not_retryable(self) -> None:
+        """Test that ResendError with code 404 (Not Found) does NOT retry."""
+        error = ResendError(
+            code=404,
+            message='Not Found',
+            error_type='not_found',
+            suggested_action='Check resource ID',
+        )
+        assert _is_retryable_resend_error(error) is False
+
+    def test_resend_error_500_not_retryable_unless_http_client_error(self) -> None:
+        """Test that ResendError with code 500 does NOT retry unless HttpClientError.
+
+        500 errors typically indicate permanent server bugs, not transient issues.
+        The exception is when error_type='HttpClientError', which indicates the
+        Resend SDK wrapped a network error.
+        """
+        # Regular 500 error - should NOT retry
+        error = ResendError(
+            code=500,
+            message='Internal Server Error',
+            error_type='internal_server_error',
+            suggested_action='Contact support',
+        )
+        assert _is_retryable_resend_error(error) is False
+
+    def test_resend_error_non_integer_code_is_retryable(self) -> None:
+        """Test that ResendError with non-integer code retries by default.
+
+        This is a defensive measure to avoid regression from the old behavior
+        that retried all ResendError exceptions.
+        """
+        error = ResendError(
+            code='unknown',
+            message='Unknown error',
+            error_type='unknown',
+            suggested_action='',
+        )
+        assert _is_retryable_resend_error(error) is True
+
+    def test_non_resend_exception_not_retryable(self) -> None:
+        """Test that non-Resend exceptions do NOT trigger retries."""
+        assert _is_retryable_resend_error(ValueError('test')) is False
+        assert _is_retryable_resend_error(KeyError('test')) is False
+        assert _is_retryable_resend_error(RuntimeError('test')) is False
+
+    def test_generic_exception_not_retryable(self) -> None:
+        """Test that generic Exception does NOT trigger retries."""
+        assert _is_retryable_resend_error(Exception('test')) is False
