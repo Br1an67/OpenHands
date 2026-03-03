@@ -178,12 +178,15 @@ def config_from_env() -> AppServerConfig:
 
     if config.event is None:
         file_store = os.environ.get('FILE_STORE')
-        if file_store == 'google_cloud':
+        provider = os.environ.get('SHARED_EVENT_STORAGE_PROVIDER')
+        provider = provider.lower() if provider else None
+
+        if provider == 'gcp' or file_store == 'google_cloud':
             # Legacy V0 google cloud storage configuration
             config.event = GoogleCloudEventServiceInjector(
                 bucket_name=os.environ.get('FILE_STORE_PATH')
             )
-        elif file_store == 's3':
+        elif provider == 'aws':
             # AWS S3 storage configuration
             bucket_name = os.environ.get('FILE_STORE_PATH')
             if not bucket_name:
