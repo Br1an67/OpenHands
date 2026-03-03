@@ -26,6 +26,7 @@ from openhands.core.schema.observation import ObservationType
 from openhands.events.action import FileReadAction, MessageAction
 from openhands.events.observation.commands import CmdOutputObservation
 from openhands.events.stream import EventStreamSubscriber, session_exists
+from openhands.experiments.experiment_manager import ExperimentManagerImpl
 from openhands.llm.llm_registry import LLMRegistry
 from openhands.runtime import get_runtime_cls
 from openhands.server.config.server_config import ServerConfig
@@ -347,8 +348,11 @@ class StandaloneConversationManager(ConversationManager):
                 )
                 await self.close_session(oldest_conversation_id)
 
+        config = await ExperimentManagerImpl.run_config_variant_test(
+            user_id, sid, self.config
+        )
         llm_registry, conversation_stats, config = (
-            create_registry_and_conversation_stats(self.config, sid, user_id, settings)
+            create_registry_and_conversation_stats(config, sid, user_id, settings)
         )
         session = Session(
             sid=sid,

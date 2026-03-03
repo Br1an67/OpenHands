@@ -407,7 +407,7 @@ class SaasNestedConversationManager(ConversationManager):
             ExperimentManagerImpl,
         )
 
-        config: OpenHandsConfig = ExperimentManagerImpl.run_config_variant_test(
+        config: OpenHandsConfig = await ExperimentManagerImpl.run_config_variant_test(
             user_id, sid, self.config
         )
 

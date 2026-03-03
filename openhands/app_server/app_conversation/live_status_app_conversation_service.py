@@ -1162,7 +1162,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         conversation_id = conversation_id or uuid4()
 
         # Apply experiment variants
-        agent = ExperimentManagerImpl.run_agent_variant_tests__v1(
+        agent = await ExperimentManagerImpl.run_agent_variant_tests__v1(
             user.id, conversation_id, agent
         )
 

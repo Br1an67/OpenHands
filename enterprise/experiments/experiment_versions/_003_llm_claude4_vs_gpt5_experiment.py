@@ -17,7 +17,7 @@ from openhands.core.logger import openhands_logger as logger
 from openhands.server.session.conversation_init_data import ConversationInitData
 
 
-def _get_model_variant(user_id: str | None, conversation_id: str) -> str | None:
+async def _get_model_variant(user_id: str | None, conversation_id: str) -> str | None:
     if not EXPERIMENT_CLAUDE4_VS_GPT5:
         logger.info(
             'experiment_manager:ab_testing:skipped',
@@ -47,7 +47,7 @@ def _get_model_variant(user_id: str | None, conversation_id: str) -> str | None:
     # Store the experiment assignment in the database
     try:
         experiment_store = ExperimentAssignmentStore()
-        experiment_store.update_experiment_variant(
+        await experiment_store.update_experiment_variant(
             conversation_id=conversation_id,
             experiment_name='claude4_vs_gpt5_experiment',
             variant=enabled_variant,
@@ -105,7 +105,7 @@ def _get_model_variant(user_id: str | None, conversation_id: str) -> str | None:
     return enabled_variant
 
 
-def handle_claude4_vs_gpt5_experiment(
+async def handle_claude4_vs_gpt5_experiment(
     user_id: str | None,
     conversation_id: str,
     conversation_settings: ConversationInitData,
@@ -122,7 +122,7 @@ def handle_claude4_vs_gpt5_experiment(
         Modified conversation settings
     """
 
-    enabled_variant = _get_model_variant(user_id, conversation_id)
+    enabled_variant = await _get_model_variant(user_id, conversation_id)
 
     if not enabled_variant:
         return conversation_settings

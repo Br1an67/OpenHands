@@ -15,7 +15,7 @@ from server.constants import (
 from openhands.core.logger import openhands_logger as logger
 
 
-def handle_litellm_default_model_experiment(
+async def handle_litellm_default_model_experiment(
     user_id, conversation_id, conversation_settings
 ):
     """

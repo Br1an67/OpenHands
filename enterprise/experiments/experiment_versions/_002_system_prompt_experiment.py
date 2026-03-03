@@ -16,7 +16,7 @@ from openhands.core.config.openhands_config import OpenHandsConfig
 from openhands.core.logger import openhands_logger as logger
 
 
-def _get_system_prompt_variant(user_id, conversation_id):
+async def _get_system_prompt_variant(user_id, conversation_id):
     """
     Get the system prompt variant for the experiment.
 
@@ -58,7 +58,7 @@ def _get_system_prompt_variant(user_id, conversation_id):
     # Store the experiment assignment in the database
     try:
         experiment_store = ExperimentAssignmentStore()
-        experiment_store.update_experiment_variant(
+        await experiment_store.update_experiment_variant(
             conversation_id=conversation_id,
             experiment_name='system_prompt_experiment',
             variant=enabled_variant,
@@ -116,7 +116,7 @@ def _get_system_prompt_variant(user_id, conversation_id):
     return enabled_variant
 
 
-def handle_system_prompt_experiment(
+async def handle_system_prompt_experiment(
     user_id, conversation_id, config: OpenHandsConfig
 ) -> OpenHandsConfig:
     """
@@ -130,7 +130,7 @@ def handle_system_prompt_experiment(
     Returns:
         Modified OpenHands configuration
     """
-    enabled_variant = _get_system_prompt_variant(user_id, conversation_id)
+    enabled_variant = await _get_system_prompt_variant(user_id, conversation_id)
 
     # If variant is None, experiment is not enabled or there was an error
     if enabled_variant is None:

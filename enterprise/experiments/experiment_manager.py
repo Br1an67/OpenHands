@@ -17,7 +17,7 @@ from openhands.server.session.conversation_init_data import ConversationInitData
 
 class SaaSExperimentManager(ExperimentManager):
     @staticmethod
-    def run_agent_variant_tests__v1(
+    async def run_agent_variant_tests__v1(
         user_id: str | None, conversation_id: UUID, agent: Agent
     ) -> Agent:
         if not ENABLE_EXPERIMENT_MANAGER:
@@ -37,7 +37,7 @@ class SaaSExperimentManager(ExperimentManager):
         return agent
 
     @staticmethod
-    def run_conversation_variant_test(
+    async def run_conversation_variant_test(
         user_id, conversation_id, conversation_settings
     ) -> ConversationInitData:
         """
@@ -60,7 +60,7 @@ class SaaSExperimentManager(ExperimentManager):
         return conversation_settings
 
     @staticmethod
-    def run_config_variant_test(
+    async def run_config_variant_test(
         user_id: str | None, conversation_id: str, config: OpenHandsConfig
     ) -> OpenHandsConfig:
         """
@@ -90,7 +90,7 @@ class SaaSExperimentManager(ExperimentManager):
 
         # Pass the entire OpenHands config to the system prompt experiment
         # Let the experiment handler directly modify the config as needed
-        modified_config = handle_system_prompt_experiment(
+        modified_config = await handle_system_prompt_experiment(
             user_id, conversation_id, config
         )
 

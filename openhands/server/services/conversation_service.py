@@ -142,7 +142,7 @@ async def start_conversation(
 
     conversation_init_data = ConversationInitData(**session_init_args)
 
-    conversation_init_data = ExperimentManagerImpl.run_conversation_variant_test(
+    conversation_init_data = await ExperimentManagerImpl.run_conversation_variant_test(
         user_id, conversation_id, conversation_init_data
     )
 
@@ -283,6 +283,6 @@ async def setup_init_conversation_settings(
 
     conversation_init_data = ConversationInitData(**session_init_args)
     # We should recreate the same experiment conditions when restarting a conversation
-    return ExperimentManagerImpl.run_conversation_variant_test(
+    return await ExperimentManagerImpl.run_conversation_variant_test(
         user_id, conversation_id, conversation_init_data
     )

@@ -1050,7 +1050,7 @@ class TestLiveStatusAppConversationService:
         mock_updated_agent = Mock(spec=Agent)
         mock_updated_agent.llm = mock_llm
         mock_updated_agent.condenser = None  # No condenser
-        mock_experiment_manager.run_agent_variant_tests__v1.return_value = (
+        mock_experiment_manager.run_agent_variant_tests__v1 = AsyncMock(return_value=
             mock_updated_agent
         )
 
@@ -1117,7 +1117,7 @@ class TestLiveStatusAppConversationService:
         mock_updated_agent = Mock(spec=Agent)
         mock_updated_agent.llm = mock_llm
         mock_updated_agent.condenser = None  # No condenser
-        mock_experiment_manager.run_agent_variant_tests__v1.return_value = (
+        mock_experiment_manager.run_agent_variant_tests__v1 = AsyncMock(return_value=
             mock_updated_agent
         )
 
@@ -1163,7 +1163,7 @@ class TestLiveStatusAppConversationService:
         mock_updated_agent = Mock(spec=Agent)
         mock_updated_agent.llm = mock_llm
         mock_updated_agent.condenser = None  # No condenser
-        mock_experiment_manager.run_agent_variant_tests__v1.return_value = (
+        mock_experiment_manager.run_agent_variant_tests__v1 = AsyncMock(return_value=
             mock_updated_agent
         )
 
@@ -2286,7 +2286,7 @@ class TestPluginHandling:
         mock_updated_agent = Mock(spec=Agent)
         mock_updated_agent.llm = mock_llm
         mock_updated_agent.condenser = None
-        mock_experiment_manager.run_agent_variant_tests__v1.return_value = (
+        mock_experiment_manager.run_agent_variant_tests__v1 = AsyncMock(return_value=
             mock_updated_agent
         )
 
@@ -2346,7 +2346,7 @@ class TestPluginHandling:
         mock_updated_agent = Mock(spec=Agent)
         mock_updated_agent.llm = mock_llm
         mock_updated_agent.condenser = None
-        mock_experiment_manager.run_agent_variant_tests__v1.return_value = (
+        mock_experiment_manager.run_agent_variant_tests__v1 = AsyncMock(return_value=
             mock_updated_agent
         )
 
@@ -2393,7 +2393,7 @@ class TestPluginHandling:
         mock_updated_agent = Mock(spec=Agent)
         mock_updated_agent.llm = mock_llm
         mock_updated_agent.condenser = None
-        mock_experiment_manager.run_agent_variant_tests__v1.return_value = (
+        mock_experiment_manager.run_agent_variant_tests__v1 = AsyncMock(return_value=
             mock_updated_agent
         )
 
@@ -2448,7 +2448,7 @@ class TestPluginHandling:
         mock_updated_agent = Mock(spec=Agent)
         mock_updated_agent.llm = mock_llm
         mock_updated_agent.condenser = None
-        mock_experiment_manager.run_agent_variant_tests__v1.return_value = (
+        mock_experiment_manager.run_agent_variant_tests__v1 = AsyncMock(return_value=
             mock_updated_agent
         )
 
@@ -2508,7 +2508,7 @@ class TestPluginHandling:
         mock_updated_agent = Mock(spec=Agent)
         mock_updated_agent.llm = mock_llm
         mock_updated_agent.condenser = None
-        mock_experiment_manager.run_agent_variant_tests__v1.return_value = (
+        mock_experiment_manager.run_agent_variant_tests__v1 = AsyncMock(return_value=
             mock_updated_agent
         )
 

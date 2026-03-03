@@ -20,7 +20,7 @@ from openhands.sdk.context.condenser import (
 from openhands.server.session.conversation_init_data import ConversationInitData
 
 
-def _get_condenser_max_step_variant(user_id, conversation_id):
+async def _get_condenser_max_step_variant(user_id, conversation_id):
     """
     Get the condenser max step variant for the experiment.
 
@@ -62,7 +62,7 @@ def _get_condenser_max_step_variant(user_id, conversation_id):
     # Store the experiment assignment in the database
     try:
         experiment_store = ExperimentAssignmentStore()
-        experiment_store.update_experiment_variant(
+        await experiment_store.update_experiment_variant(
             conversation_id=conversation_id,
             experiment_name='condenser_max_step_experiment',
             variant=enabled_variant,
@@ -120,7 +120,7 @@ def _get_condenser_max_step_variant(user_id, conversation_id):
     return enabled_variant
 
 
-def handle_condenser_max_step_experiment(
+async def handle_condenser_max_step_experiment(
     user_id: str | None,
     conversation_id: str,
     conversation_settings: ConversationInitData,
@@ -138,7 +138,7 @@ def handle_condenser_max_step_experiment(
     Returns the (potentially) modified conversation_settings.
     """
 
-    enabled_variant = _get_condenser_max_step_variant(user_id, conversation_id)
+    enabled_variant = await _get_condenser_max_step_variant(user_id, conversation_id)
 
     if enabled_variant is None:
         return conversation_settings
@@ -198,12 +198,12 @@ def handle_condenser_max_step_experiment(
     return conversation_settings
 
 
-def handle_condenser_max_step_experiment__v1(
+async def handle_condenser_max_step_experiment__v1(
     user_id: str | None,
     conversation_id: UUID,
     agent: Agent,
 ) -> Agent:
-    enabled_variant = _get_condenser_max_step_variant(user_id, str(conversation_id))
+    enabled_variant = await _get_condenser_max_step_variant(user_id, str(conversation_id))
 
     if enabled_variant is None:
         return agent

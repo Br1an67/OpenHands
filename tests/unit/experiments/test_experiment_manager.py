@@ -1,7 +1,7 @@
 """Unit tests for ExperimentManager class, focusing on the v1 agent method."""
 
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -34,35 +34,38 @@ class TestExperimentManager:
         self.mock_agent.system_prompt_filename = 'default_system_prompt.j2'
         self.mock_agent.model_copy = Mock(return_value=self.mock_agent)
 
-    def test_run_agent_variant_tests__v1_returns_agent_unchanged(self):
+    @pytest.mark.asyncio
+    async def test_run_agent_variant_tests__v1_returns_agent_unchanged(self):
         """Test that the base ExperimentManager returns the agent unchanged."""
-        result = ExperimentManager.run_agent_variant_tests__v1(
+        result = await ExperimentManager.run_agent_variant_tests__v1(
             self.user_id, self.conversation_id, self.mock_agent
         )
 
         assert result is self.mock_agent
         assert result == self.mock_agent
 
-    def test_run_agent_variant_tests__v1_with_none_user_id(self):
+    @pytest.mark.asyncio
+    async def test_run_agent_variant_tests__v1_with_none_user_id(self):
         """Test that the method works with None user_id."""
         # Act
-        result = ExperimentManager.run_agent_variant_tests__v1(
+        result = await ExperimentManager.run_agent_variant_tests__v1(
             None, self.conversation_id, self.mock_agent
         )
 
         # Assert
         assert result is self.mock_agent
 
-    def test_run_agent_variant_tests__v1_with_different_conversation_ids(self):
+    @pytest.mark.asyncio
+    async def test_run_agent_variant_tests__v1_with_different_conversation_ids(self):
         """Test that the method works with different conversation IDs."""
         conversation_id_1 = uuid4()
         conversation_id_2 = uuid4()
 
         # Act
-        result_1 = ExperimentManager.run_agent_variant_tests__v1(
+        result_1 = await ExperimentManager.run_agent_variant_tests__v1(
             self.user_id, conversation_id_1, self.mock_agent
         )
-        result_2 = ExperimentManager.run_agent_variant_tests__v1(
+        result_2 = await ExperimentManager.run_agent_variant_tests__v1(
             self.user_id, conversation_id_2, self.mock_agent
         )
 
@@ -90,14 +93,15 @@ class TestExperimentManagerIntegration:
         self.mock_agent.system_prompt_filename = 'default_system_prompt.j2'
         self.mock_agent.model_copy = Mock(return_value=self.mock_agent)
 
+    @pytest.mark.asyncio
     @patch('openhands.experiments.experiment_manager.ExperimentManagerImpl')
-    def test_start_app_conversation_calls_experiment_manager_v1(
+    async def test_start_app_conversation_calls_experiment_manager_v1(
         self, mock_experiment_manager_impl
     ):
         """Test that start_app_conversation calls the experiment manager v1 method with correct parameters."""
-        # Arrange
-        mock_experiment_manager_impl.run_agent_variant_tests__v1.return_value = (
-            self.mock_agent
+        # Arrange - use AsyncMock for async method
+        mock_experiment_manager_impl.run_agent_variant_tests__v1 = AsyncMock(
+            return_value=self.mock_agent
         )
 
         # Create a mock service instance
@@ -110,8 +114,8 @@ class TestExperimentManagerIntegration:
 
             conversation_id = uuid4()
 
-            # This simulates the call that happens in the actual service
-            result_agent = mock_experiment_manager_impl.run_agent_variant_tests__v1(
+            # This simulates the call that happens in the actual service (now async)
+            result_agent = await mock_experiment_manager_impl.run_agent_variant_tests__v1(
                 self.user_id, conversation_id, self.mock_agent
             )
 
@@ -235,9 +239,9 @@ class TestExperimentManagerIntegration:
                 'openhands.app_server.app_conversation.live_status_app_conversation_service.ExperimentManagerImpl'
             ) as mock_experiment_manager,
         ):
-            # Configure the experiment manager mock to return the same agent
-            mock_experiment_manager.run_agent_variant_tests__v1.return_value = (
-                mock_agent
+            # Configure the experiment manager mock to return the same agent (async)
+            mock_experiment_manager.run_agent_variant_tests__v1 = AsyncMock(
+                return_value=mock_agent
             )
 
             # --- Act: build the start request

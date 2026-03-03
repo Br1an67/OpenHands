@@ -551,7 +551,7 @@ class DockerNestedConversationManager(ConversationManager):
         # This session is created here only because it is the easiest way to get a runtime, which
         # is the easiest way to create the needed docker container
 
-        config: OpenHandsConfig = ExperimentManagerImpl.run_config_variant_test(
+        config: OpenHandsConfig = await ExperimentManagerImpl.run_config_variant_test(
             user_id, sid, self.config
         )
 

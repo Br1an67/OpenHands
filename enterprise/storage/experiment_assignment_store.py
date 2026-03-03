@@ -5,7 +5,7 @@ This store handles creating and updating experiment assignments for conversation
 """
 
 from sqlalchemy.dialects.postgresql import insert
-from storage.database import session_maker
+from storage.database import a_session_maker
 from storage.experiment_assignment import ExperimentAssignment
 
 from openhands.core.logger import openhands_logger as logger
@@ -14,7 +14,7 @@ from openhands.core.logger import openhands_logger as logger
 class ExperimentAssignmentStore:
     """Store for managing experiment assignments."""
 
-    def update_experiment_variant(
+    async def update_experiment_variant(
         self,
         conversation_id: str,
         experiment_name: str,
@@ -28,7 +28,7 @@ class ExperimentAssignmentStore:
             experiment_name: The name of the experiment
             variant: The variant assigned
         """
-        with session_maker() as session:
+        async with a_session_maker() as session:
             # Use PostgreSQL's INSERT ... ON CONFLICT DO NOTHING to handle unique constraint
             stmt = insert(ExperimentAssignment).values(
                 conversation_id=conversation_id,
@@ -39,8 +39,8 @@ class ExperimentAssignmentStore:
                 constraint='uq_experiment_assignments_conversation_experiment'
             )
 
-            session.execute(stmt)
-            session.commit()
+            await session.execute(stmt)
+            await session.commit()
 
             logger.info(
                 'experiment_assignment_store:upserted_variant',
