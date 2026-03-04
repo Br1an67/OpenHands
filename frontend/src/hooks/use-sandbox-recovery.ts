@@ -108,28 +108,30 @@ export function useSandboxRecovery({
     if (conversationStatus === "STOPPED") {
       attemptRecovery();
     }
-  }, [conversationId, conversationStatus, attemptRecovery]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, conversationStatus]);
+
+  const handleVisible = React.useCallback(async () => {
+    // Skip if no conversation or refetch function
+    if (!conversationId || !refetchConversation) return;
+
+    try {
+      // Refetch to get fresh status - cached status may be stale if sandbox was paused while tab was inactive
+      const { data } = await refetchConversation();
+      attemptRecovery(data?.status);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "Failed to refetch conversation on visibility change:",
+        error,
+      );
+    }
+  }, [conversationId, refetchConversation, isResuming, attemptRecovery]);
 
   // Handle tab focus (visibility change) - refetch conversation status and resume if needed
   useVisibilityChange({
     enabled: !!conversationId,
-    onVisible: async () => {
-      // Skip if no conversation or already resuming (avoid unnecessary refetch)
-      if (!conversationId || !refetchConversation || isResuming) return;
-
-      try {
-        // Refetch to get fresh status - cached status may be stale if sandbox was paused while tab was inactive
-        const { data } = await refetchConversation();
-        attemptRecovery(data?.status);
-      } catch (error) {
-        // Log error but don't crash - user can still interact with the UI
-        // eslint-disable-next-line no-console
-        console.error(
-          "Failed to refetch conversation on visibility change:",
-          error,
-        );
-      }
-    },
+    onVisible: handleVisible,
   });
 
   return { isResuming };
