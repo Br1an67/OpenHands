@@ -37,10 +37,6 @@ LITE_LLM_API_URL = os.environ.get(
     'LITE_LLM_API_URL', 'https://llm-proxy.app.all-hands.dev'
 )
 
-# Check if DEFAULT_V1_ENABLED is explicitly set to false
-_DEFAULT_V1_ENABLED_VALUE = os.getenv('DEFAULT_V1_ENABLED', 'true').lower()
-_FORCE_V0_CONVERSATIONS = _DEFAULT_V1_ENABLED_VALUE in ('0', 'false')
-
 app = APIRouter(prefix='/api', dependencies=get_dependencies())
 
 
@@ -103,10 +99,6 @@ async def load_settings(
         settings_with_token_data.llm_api_key = None
         settings_with_token_data.search_api_key = None
         settings_with_token_data.sandbox_api_key = None
-
-        # Override v1_enabled if DEFAULT_V1_ENABLED is set to false
-        if _FORCE_V0_CONVERSATIONS:
-            settings_with_token_data.v1_enabled = False
 
         return settings_with_token_data
     except Exception as e:
