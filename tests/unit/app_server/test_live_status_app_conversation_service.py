@@ -6,7 +6,7 @@ import os
 import zipfile
 from datetime import datetime
 from unittest.mock import ANY, AsyncMock, Mock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from pydantic import SecretStr
@@ -1004,11 +1004,12 @@ class TestLiveStatusAppConversationService:
 
         workspace = LocalWorkspace(working_dir='/test')
         secrets = {'test': StaticSecret(value='secret')}
+        conversation_id = uuid4()
 
         # Act
         result = await self.service._finalize_conversation_request(
             mock_agent,
-            None,
+            conversation_id,
             self.mock_user,
             workspace,
             None,
@@ -1021,7 +1022,7 @@ class TestLiveStatusAppConversationService:
 
         # Assert
         assert isinstance(result, StartConversationRequest)
-        assert isinstance(result.conversation_id, UUID)
+        assert result.conversation_id == conversation_id
         assert result.agent == mock_updated_agent
         mock_experiment_manager.run_agent_variant_tests__v1.assert_called_once()
 
@@ -1051,6 +1052,7 @@ class TestLiveStatusAppConversationService:
         workspace = LocalWorkspace(working_dir='/test')
         secrets = {'test': StaticSecret(value='secret')}
         remote_workspace = Mock(spec=AsyncRemoteWorkspace)
+        conversation_id = uuid4()
 
         # Mock skills loading to raise an exception
         self.service._load_skills_and_update_agent = AsyncMock(
@@ -1063,7 +1065,7 @@ class TestLiveStatusAppConversationService:
         ) as mock_logger:
             result = await self.service._finalize_conversation_request(
                 mock_agent,
-                None,
+                conversation_id,
                 self.mock_user,
                 workspace,
                 None,
@@ -2180,6 +2182,7 @@ class TestPluginHandling:
 
         workspace = LocalWorkspace(working_dir='/test')
         secrets = {'test': StaticSecret(value='secret')}
+        conversation_id = uuid4()
 
         plugins = [
             PluginSpec(
@@ -2192,7 +2195,7 @@ class TestPluginHandling:
         # Act
         result = await self.service._finalize_conversation_request(
             mock_agent,
-            None,
+            conversation_id,
             self.mock_user,
             workspace,
             None,
@@ -2240,11 +2243,12 @@ class TestPluginHandling:
 
         workspace = LocalWorkspace(working_dir='/test')
         secrets = {}
+        conversation_id = uuid4()
 
         # Act
         result = await self.service._finalize_conversation_request(
             mock_agent,
-            None,
+            conversation_id,
             self.mock_user,
             workspace,
             None,
@@ -2287,6 +2291,7 @@ class TestPluginHandling:
 
         workspace = LocalWorkspace(working_dir='/test')
         secrets = {}
+        conversation_id = uuid4()
 
         # Plugin without ref or parameters
         plugins = [PluginSpec(source='github:owner/my-plugin')]
@@ -2294,7 +2299,7 @@ class TestPluginHandling:
         # Act
         result = await self.service._finalize_conversation_request(
             mock_agent,
-            None,
+            conversation_id,
             self.mock_user,
             workspace,
             None,
@@ -2342,6 +2347,7 @@ class TestPluginHandling:
 
         workspace = LocalWorkspace(working_dir='/test')
         secrets = {}
+        conversation_id = uuid4()
 
         # Plugin with repo_path (for marketplace repos containing multiple plugins)
         plugins = [
@@ -2355,7 +2361,7 @@ class TestPluginHandling:
         # Act
         result = await self.service._finalize_conversation_request(
             mock_agent,
-            None,
+            conversation_id,
             self.mock_user,
             workspace,
             None,
@@ -2402,6 +2408,7 @@ class TestPluginHandling:
 
         workspace = LocalWorkspace(working_dir='/test')
         secrets = {}
+        conversation_id = uuid4()
 
         # Multiple plugins
         plugins = [
@@ -2416,7 +2423,7 @@ class TestPluginHandling:
         # Act
         result = await self.service._finalize_conversation_request(
             mock_agent,
-            None,
+            conversation_id,
             self.mock_user,
             workspace,
             None,

@@ -1096,7 +1096,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
     async def _finalize_conversation_request(
         self,
         agent: Agent,
-        conversation_id: UUID | None,
+        conversation_id: UUID,
         user: UserInfo,
         workspace: LocalWorkspace,
         initial_message: SendMessageRequest | None,
@@ -1111,7 +1111,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
 
         Args:
             agent: The configured agent
-            conversation_id: Optional conversation ID, generates new one if None
+            conversation_id: Conversation ID
             user: User information
             workspace: Local workspace instance
             initial_message: Optional initial message for the conversation
@@ -1125,8 +1125,6 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         Returns:
             Complete StartConversationRequest ready for use
         """
-        # Generate conversation ID if not provided
-        conversation_id = conversation_id or uuid4()
 
         # Apply experiment variants
         agent = ExperimentManagerImpl.run_agent_variant_tests__v1(
