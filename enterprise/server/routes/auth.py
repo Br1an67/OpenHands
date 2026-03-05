@@ -167,7 +167,7 @@ async def _get_user_orgs_with_data(user_id: str, org_member_ids: list) -> list:
     orgs = []
     for org_id in org_member_ids:
         try:
-            org = OrgStore.get_org_by_id(org_id)
+            org = await OrgStore.get_org_by_id(org_id)
             if org:
                 orgs.append(org)
         except Exception:
