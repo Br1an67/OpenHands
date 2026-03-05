@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { useFeatureFlagEnabled } from "posthog-js/react";
 import { ContextMenu } from "#/ui/context-menu";
 import { ContextMenuListItem } from "./context-menu-list-item";
+import { ContextMenuCTA } from "./context-menu-cta";
 import { Divider } from "#/ui/divider";
 import { useClickOutsideElement } from "#/hooks/use-click-outside-element";
 import { I18nKey } from "#/i18n/declaration";
@@ -24,7 +25,7 @@ export function AccountSettingsContextMenu({
   onLogout,
   onClose,
 }: AccountSettingsContextMenuProps) {
-  const ref = useClickOutsideElement<HTMLUListElement>(onClose);
+  const ref = useClickOutsideElement<HTMLDivElement>(onClose);
   const { t } = useTranslation();
   const { trackAddTeamMembersButtonClick } = useTracking();
   const { data: config } = useConfig();
@@ -55,62 +56,72 @@ export function AccountSettingsContextMenu({
   };
 
   return (
-    <ContextMenu
-      testId="account-settings-context-menu"
+    <div
       ref={ref}
-      alignment="right"
-      className="mt-0 md:right-full md:left-full md:bottom-0 ml-0 w-fit z-[9999]"
+      data-testid="account-settings-context-menu"
+      className="absolute bg-tertiary rounded-[20px] border border-[#525252] text-white overflow-hidden z-[9999] context-menu-box-shadow mt-2 right-0 md:right-full md:left-full md:bottom-0 ml-0 w-[734px] h-[487px] flex flex-row gap-6 p-[30px]"
     >
-      {showAddTeamMembers && (
-        <ContextMenuListItem
-          testId="add-team-members-button"
-          onClick={handleAddTeamMembers}
-          className="flex items-center gap-2 p-2 hover:bg-[#5C5D62] rounded h-[30px]"
-        >
-          <PlusIcon width={16} height={16} />
-          <span className="text-white text-sm">
-            {t(I18nKey.SETTINGS$NAV_ADD_TEAM_MEMBERS)}
-          </span>
-        </ContextMenuListItem>
-      )}
-      {navItems.map(({ to, text, icon }) => (
-        <Link key={to} to={to} className="text-decoration-none">
+      {/* Left column - Settings list */}
+      <ContextMenu
+        testId="account-settings-menu-list"
+        className="relative !bg-transparent !shadow-none !rounded-none border-none p-0 m-0 w-[320px] [box-shadow:none]"
+      >
+        {showAddTeamMembers && (
           <ContextMenuListItem
-            onClick={handleNavigationClick}
+            testId="add-team-members-button"
+            onClick={handleAddTeamMembers}
             className="flex items-center gap-2 p-2 hover:bg-[#5C5D62] rounded h-[30px]"
           >
-            {icon}
-            <span className="text-white text-sm">{t(text)}</span>
+            <PlusIcon width={16} height={16} />
+            <span className="text-white text-sm">
+              {t(I18nKey.SETTINGS$NAV_ADD_TEAM_MEMBERS)}
+            </span>
           </ContextMenuListItem>
-        </Link>
-      ))}
+        )}
+        {navItems.map(({ to, text, icon }) => (
+          <Link key={to} to={to} className="text-decoration-none">
+            <ContextMenuListItem
+              onClick={handleNavigationClick}
+              className="flex items-center gap-2 p-2 hover:bg-[#5C5D62] rounded h-[30px]"
+            >
+              {icon}
+              <span className="text-white text-sm">{t(text)}</span>
+            </ContextMenuListItem>
+          </Link>
+        ))}
 
-      <Divider />
+        <Divider />
 
-      <a
-        href="https://docs.openhands.dev"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-decoration-none"
-      >
+        <a
+          href="https://docs.openhands.dev"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-decoration-none"
+        >
+          <ContextMenuListItem
+            onClick={onClose}
+            className="flex items-center gap-2 p-2 hover:bg-[#5C5D62] rounded h-[30px]"
+          >
+            <DocumentIcon width={16} height={16} />
+            <span className="text-white text-sm">
+              {t(I18nKey.SIDEBAR$DOCS)}
+            </span>
+          </ContextMenuListItem>
+        </a>
+
         <ContextMenuListItem
-          onClick={onClose}
+          onClick={onLogout}
           className="flex items-center gap-2 p-2 hover:bg-[#5C5D62] rounded h-[30px]"
         >
-          <DocumentIcon width={16} height={16} />
-          <span className="text-white text-sm">{t(I18nKey.SIDEBAR$DOCS)}</span>
+          <LogOutIcon width={16} height={16} />
+          <span className="text-white text-sm">
+            {t(I18nKey.ACCOUNT_SETTINGS$LOGOUT)}
+          </span>
         </ContextMenuListItem>
-      </a>
+      </ContextMenu>
 
-      <ContextMenuListItem
-        onClick={onLogout}
-        className="flex items-center gap-2 p-2 hover:bg-[#5C5D62] rounded h-[30px]"
-      >
-        <LogOutIcon width={16} height={16} />
-        <span className="text-white text-sm">
-          {t(I18nKey.ACCOUNT_SETTINGS$LOGOUT)}
-        </span>
-      </ContextMenuListItem>
-    </ContextMenu>
+      {/* Right column - CTA */}
+      <ContextMenuCTA />
+    </div>
   );
 }

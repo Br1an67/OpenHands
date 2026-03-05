@@ -17,7 +17,6 @@ const cardVariants = cva("flex", {
       default: "bg-[#26282D]",
     },
     gap: {
-      none: "gap-0",
       default: "gap-[10px]",
       lg: "gap-6",
     },

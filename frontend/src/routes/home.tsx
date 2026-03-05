@@ -6,6 +6,7 @@ import { TaskSuggestions } from "#/components/features/home/tasks/task-suggestio
 import { GitRepository } from "#/types/git";
 import { NewConversation } from "#/components/features/home/new-conversation/new-conversation";
 import { RecentConversations } from "#/components/features/home/recent-conversations/recent-conversations";
+import { HomepageCTA } from "#/components/features/home/homepage-cta";
 
 <PrefetchPageLinks page="/conversations/:conversationId" />;
 
@@ -39,6 +40,10 @@ function HomeScreen() {
           <RecentConversations />
           <TaskSuggestions filterFor={selectedRepo} />
         </div>
+      </div>
+
+      <div className="mt-auto ml-auto p-6">
+        <HomepageCTA />
       </div>
     </div>
   );
