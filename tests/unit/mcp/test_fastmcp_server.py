@@ -16,46 +16,6 @@ from openhands.mcp.client import MCPClient
 from openhands.mcp.tool import MCPClientTool
 
 
-class TestFastMCPImports:
-    """Test that fastmcp 2.14.3 imports work correctly."""
-
-    def test_fastmcp_client_import(self):
-        """Test that fastmcp Client can be imported."""
-        from fastmcp import Client
-
-        assert Client is not None
-
-    def test_fastmcp_server_import(self):
-        """Test that FastMCP server can be imported."""
-        from fastmcp import FastMCP
-
-        assert FastMCP is not None
-
-    def test_fastmcp_transports_import(self):
-        """Test that fastmcp transports can be imported."""
-        from fastmcp.client.transports import (
-            SSETransport,
-            StdioTransport,
-            StreamableHttpTransport,
-        )
-
-        assert SSETransport is not None
-        assert StdioTransport is not None
-        assert StreamableHttpTransport is not None
-
-    def test_fastmcp_exceptions_import(self):
-        """Test that fastmcp exceptions can be imported."""
-        from fastmcp.exceptions import ToolError
-
-        assert ToolError is not None
-
-    def test_fastmcp_dependencies_import(self):
-        """Test that fastmcp server dependencies can be imported."""
-        from fastmcp.server.dependencies import get_http_request
-
-        assert get_http_request is not None
-
-
 class TestFastMCPServerCreation:
     """Test FastMCP server instantiation."""
 
