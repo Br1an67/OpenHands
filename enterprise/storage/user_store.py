@@ -295,22 +295,21 @@ class UserStore:
                 extra={'user_id': user_id},
             )
 
+            user_uuid = uuid.UUID(user_id)
+
             # need to migrate conversation metadata
             await session.execute(
                 text("""
                     INSERT INTO conversation_metadata_saas (conversation_id, user_id, org_id)
                     SELECT
                         conversation_id,
-                        :user_id::uuid,
-                        :user_id::uuid
+                        :user_uuid,
+                        :user_uuid
                     FROM conversation_metadata
-                    WHERE user_id = :user_id::text
+                    WHERE user_id = :user_id_text
                 """),
-                {'user_id': user_id},
+                {'user_uuid': user_uuid, 'user_id_text': user_id},
             )
-
-            # Update org_id for tables that had org_id added
-            user_uuid = uuid.UUID(user_id)
 
             # Update stripe_customers
             await session.execute(
