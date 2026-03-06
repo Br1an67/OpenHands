@@ -143,8 +143,11 @@ class LiteLlmManager:
                 key_alias = get_openhands_cloud_key_alias(keycloak_user_id, org_id)
                 try:
                     await LiteLlmManager._delete_key_by_alias(client, key_alias)
-                except:
-                    logger.debug(f'Key "{key_alias}" did not exist - continuing')
+                except httpx.HTTPStatusError as ex:
+                    if ex.status_code == 404:
+                        logger.debug(f'Key "{key_alias}" did not exist - continuing')
+                    else:
+                        raise
 
                 key = await LiteLlmManager._generate_key(
                     client,
