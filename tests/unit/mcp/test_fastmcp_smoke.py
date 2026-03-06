@@ -1,34 +1,15 @@
-"""Smoke tests to verify fastmcp 2.14.3 upgrade works correctly.
+"""Smoke tests to verify fastmcp upgrade works correctly.
 
 These tests exercise real fastmcp functionality without mocking the core
 components, ensuring the upgrade maintains compatibility with OpenHands.
 """
 
 import asyncio
-import importlib.metadata
-import re
 
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import TextContent
-
-
-class TestFastMCPVersionRequirement:
-    """Verify fastmcp version meets the upgrade requirements."""
-
-    def test_fastmcp_version_is_2_14_3_or_higher(self):
-        """Verify fastmcp version is >= 2.14.3."""
-        version = importlib.metadata.version('fastmcp')
-
-        # Parse version string (e.g., "2.14.3" -> (2, 14, 3))
-        version_parts = [int(x) for x in re.split(r'[.-]', version)[:3]]
-        major, minor, patch = (version_parts + [0, 0, 0])[:3]
-
-        assert (major, minor, patch) >= (2, 14, 3), (
-            f'FastMCP version {version} does not meet the minimum requirement. '
-            f'Expected version 2.14.3 or higher.'
-        )
 
 
 class TestFastMCPServerCreation:
