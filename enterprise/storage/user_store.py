@@ -316,7 +316,7 @@ class UserStore:
                 text(
                     'UPDATE stripe_customers SET org_id = :org_id WHERE keycloak_user_id = :user_id'
                 ),
-                {'org_id': user_uuid, 'user_id': user_uuid},
+                {'org_id': user_uuid, 'user_id': user_id},
             )
 
             # Update slack_users
@@ -324,7 +324,7 @@ class UserStore:
                 text(
                     'UPDATE slack_users SET org_id = :org_id WHERE keycloak_user_id = :user_id'
                 ),
-                {'org_id': user_uuid, 'user_id': user_uuid},
+                {'org_id': user_uuid, 'user_id': user_id},
             )
 
             # Update slack_conversation
@@ -332,13 +332,13 @@ class UserStore:
                 text(
                     'UPDATE slack_conversation SET org_id = :org_id WHERE keycloak_user_id = :user_id'
                 ),
-                {'org_id': user_uuid, 'user_id': user_uuid},
+                {'org_id': user_uuid, 'user_id': user_id},
             )
 
             # Update api_keys
             await session.execute(
                 text('UPDATE api_keys SET org_id = :org_id WHERE user_id = :user_id'),
-                {'org_id': user_uuid, 'user_id': user_uuid},
+                {'org_id': user_uuid, 'user_id': user_id},
             )
 
             # Update custom_secrets
@@ -346,7 +346,7 @@ class UserStore:
                 text(
                     'UPDATE custom_secrets SET org_id = :org_id WHERE keycloak_user_id = :user_id'
                 ),
-                {'org_id': user_uuid, 'user_id': user_uuid},
+                {'org_id': user_uuid, 'user_id': user_id},
             )
 
             # Update billing_sessions
@@ -354,7 +354,7 @@ class UserStore:
                 text(
                     'UPDATE billing_sessions SET org_id = :org_id WHERE user_id = :user_id'
                 ),
-                {'org_id': user_uuid, 'user_id': user_uuid},
+                {'org_id': user_uuid, 'user_id': user_id},
             )
 
             await session.commit()
