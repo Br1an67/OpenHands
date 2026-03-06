@@ -13,8 +13,7 @@ from openhands.sdk.utils.models import DiscriminatedUnionMixin
 
 # The version of the agent server to use for deployments.
 # Typically this will be the same as the values from the pyproject.toml
-# Using SDK PR #2115 image that fixes hook_config being sent to server
-AGENT_SERVER_IMAGE = 'ghcr.io/openhands/agent-server:9990f4e-python'
+AGENT_SERVER_IMAGE = 'ghcr.io/openhands/agent-server:70ebee0-python'
 
 
 class SandboxSpecService(ABC):
