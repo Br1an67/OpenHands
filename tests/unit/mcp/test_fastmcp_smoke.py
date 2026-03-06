@@ -201,19 +201,60 @@ class TestFastMCPProxySupport:
         with pytest.raises(ValueError, match='No MCP servers defined'):
             FastMCP.as_proxy(config)
 
-    def test_as_proxy_with_stdio_server(self):
-        """Test creating a FastMCP proxy with a stdio server config."""
-        config = {
-            'mcpServers': {
-                'test-server': {
-                    'command': 'echo',
-                    'args': ['hello'],
-                }
-            }
-        }
+    @pytest.mark.asyncio
+    async def test_proxy_with_real_mcp_server(self):
+        """Test creating a FastMCP proxy with a real MCP server."""
+        # Create a minimal MCP server with real tools
+        server = FastMCP('minimal-proxy-backend')
 
-        proxy = FastMCP.as_proxy(config)
+        @server.tool()
+        def add_numbers(a: int, b: int) -> int:
+            """Add two numbers together."""
+            return a + b
+
+        @server.tool()
+        def echo_message(message: str) -> str:
+            """Echo a message back."""
+            return f'Echo: {message}'
+
+        # Create a proxy from the real server
+        proxy = FastMCP.as_proxy(server)
         assert proxy is not None
+
+        # Connect a client to the proxy and verify it works
+        async with Client(proxy) as client:
+            # List tools through the proxy
+            tools = await client.list_tools()
+            tool_names = [t.name for t in tools]
+            assert 'add_numbers' in tool_names
+            assert 'echo_message' in tool_names
+            assert len(tools) == 2
+
+            # Call tools through the proxy
+            result = await client.call_tool('add_numbers', {'a': 10, 'b': 5})
+            assert result.data == 15
+            assert result.is_error is False
+
+            result = await client.call_tool('echo_message', {'message': 'hello proxy'})
+            assert result.data == 'Echo: hello proxy'
+
+    @pytest.mark.asyncio
+    async def test_proxy_with_async_tools(self):
+        """Test proxy correctly handles async tools from backend server."""
+        server = FastMCP('async-proxy-backend')
+
+        @server.tool()
+        async def async_process(data: str) -> str:
+            """Asynchronously process data."""
+            await asyncio.sleep(0.001)  # Simulate async work
+            return f'Processed: {data}'
+
+        proxy = FastMCP.as_proxy(server)
+
+        async with Client(proxy) as client:
+            result = await client.call_tool('async_process', {'data': 'test'})
+            assert result.data == 'Processed: test'
+            assert result.is_error is False
 
 
 class TestMCPClientTool:
