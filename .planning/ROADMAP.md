@@ -64,7 +64,10 @@ Plans:
   2. Unhandled JavaScript errors and promise rejections are captured by PostHog error tracking
   3. Session replay includes network request/response recording
   4. A PostHog dashboard exists showing web vitals trends and error rate insights
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 07-01-PLAN.md — Enable web vitals, error tracking, and network recording in PostHog config
+- [ ] 07-02-PLAN.md — Create Frontend Health dashboard in PostHog with web vitals + error insights
 
 ## Progress
 
@@ -79,4 +82,4 @@ Phases execute in numeric order: 5 → 6 → 7
 | 4. Activation and Dashboards | v1.0 | 3/3 | Complete | 2026-03-05 |
 | 5. Foundation | v1.1 | 0/2 | Planning complete | - |
 | 6. Migration | v1.1 | 0/2 | Planning complete | - |
-| 7. Frontend Health | v1.1 | 0/0 | Not started | - |
+| 7. Frontend Health | v1.1 | 0/2 | Planning complete | - |
