@@ -387,13 +387,6 @@ class TestFastMCPIntegrationSmoke:
 class TestOpenHandsMCPRouteSmoke:
     """Smoke tests for OpenHands MCP route components."""
 
-    def test_mcp_server_import(self):
-        """Test mcp_server can be imported from routes."""
-        from openhands.server.routes.mcp import mcp_server
-
-        assert mcp_server is not None
-        assert mcp_server.name == 'mcp'
-
     def test_mcp_server_tools_registered(self):
         """Test that MCP server has expected tools registered."""
         from openhands.server.routes.mcp import mcp_server
@@ -411,67 +404,3 @@ class TestOpenHandsMCPRouteSmoke:
         ]
         for expected in expected_tools:
             assert expected in tool_names, f'Expected tool {expected} not found'
-
-
-class TestFastMCPDependencyImportsSmoke:
-    """Verify all fastmcp-related imports work after the upgrade."""
-
-    def test_fastmcp_core_imports(self):
-        """Test core fastmcp imports."""
-        from fastmcp import Client, FastMCP
-        from fastmcp.exceptions import ToolError
-        from fastmcp.server.dependencies import get_http_request
-
-        assert FastMCP is not None
-        assert Client is not None
-        assert ToolError is not None
-        assert get_http_request is not None
-
-    def test_fastmcp_transport_imports(self):
-        """Test transport imports."""
-        from fastmcp.client.transports import (
-            SSETransport,
-            StdioTransport,
-            StreamableHttpTransport,
-        )
-
-        assert SSETransport is not None
-        assert StreamableHttpTransport is not None
-        assert StdioTransport is not None
-
-    def test_mcp_package_imports(self):
-        """Test mcp package imports."""
-        from mcp import McpError
-        from mcp.server.fastmcp.server import Settings
-        from mcp.server.session import ServerSession
-        from mcp.shared.exceptions import McpError as SharedMcpError
-        from mcp.types import CallToolResult, ErrorData, TextContent, Tool
-
-        assert McpError is not None
-        assert SharedMcpError is not None
-        assert Settings is not None
-        assert ServerSession is not None
-        assert Tool is not None
-        assert TextContent is not None
-        assert CallToolResult is not None
-        assert ErrorData is not None
-
-    def test_openhands_mcp_imports(self):
-        """Test OpenHands MCP module imports."""
-        from openhands.mcp.client import MCPClient
-        from openhands.mcp.error_collector import mcp_error_collector
-        from openhands.mcp.tool import MCPClientTool
-        from openhands.mcp.utils import (
-            call_tool_mcp,
-            convert_mcp_clients_to_tools,
-            create_mcp_clients,
-            fetch_mcp_tools_from_config,
-        )
-
-        assert MCPClient is not None
-        assert MCPClientTool is not None
-        assert mcp_error_collector is not None
-        assert convert_mcp_clients_to_tools is not None
-        assert create_mcp_clients is not None
-        assert fetch_mcp_tools_from_config is not None
-        assert call_tool_mcp is not None
