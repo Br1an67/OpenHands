@@ -301,10 +301,10 @@ class UserStore:
                     INSERT INTO conversation_metadata_saas (conversation_id, user_id, org_id)
                     SELECT
                         conversation_id,
-                        :user_id,
-                        :user_id
+                        :user_id::uuid,
+                        :user_id::uuid
                     FROM conversation_metadata
-                    WHERE user_id = :user_id
+                    WHERE user_id = :user_id::text
                 """),
                 {'user_id': user_id},
             )
