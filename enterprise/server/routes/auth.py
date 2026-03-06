@@ -206,12 +206,7 @@ async def keycloak_callback(
             status_code=status.HTTP_401_UNAUTHORIZED, detail='Missing required role'
         )
 
-    logger.info('trace_keycloak_callback_before_authorize_user')
     authorization = await user_authorizer.authorize_user(user_info)
-    logger.info(
-        'trace_keycloak_callback_after_authorize_user',
-        extra={'success': authorization.success},
-    )
     if not authorization.success:
         # Return unauthorized
         raise HTTPException(
@@ -221,20 +216,11 @@ async def keycloak_callback(
 
     email = user_info.email
     user_id = user_info.sub
-    logger.info(
-        'trace_keycloak_callback',
-        extra={
-            'email': email,
-            'user_id': user_id,
-        },
-    )
     user_info_dict = user_info.model_dump(exclude_none=True)
     user = await UserStore.get_user_by_id(user_id)
     if not user:
-        logger.info('trace_keycloak_callback_create_new_user')
         user = await UserStore.create_user(user_id, user_info_dict)
     else:
-        logger.info('trace_keycloak_callback_existing_user_user')
         # Existing user — gradually backfill contact_name if it still has a username-style value
         await UserStore.backfill_contact_name(user_id, user_info_dict)
         await UserStore.backfill_user_email(user_id, user_info_dict)
