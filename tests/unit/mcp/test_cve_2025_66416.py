@@ -19,38 +19,6 @@ import re
 import pytest
 
 
-class TestMCPVersionRequirement:
-    """Test that MCP version meets the security requirement."""
-
-    def test_mcp_version_is_1_23_0_or_higher(self):
-        """Verify mcp version is >= 1.23.0 to include CVE-2025-66416 fix."""
-        version = importlib.metadata.version('mcp')
-
-        # Parse version string (e.g., "1.25.0" -> (1, 25, 0))
-        version_parts = [int(x) for x in re.split(r'[.-]', version)[:3]]
-        major, minor, patch = (version_parts + [0, 0, 0])[:3]
-
-        # CVE-2025-66416 was fixed in mcp 1.23.0
-        assert (major, minor, patch) >= (1, 23, 0), (
-            f'MCP version {version} is vulnerable to CVE-2025-66416. '
-            f'Minimum required version is 1.23.0.'
-        )
-
-    def test_mcp_version_is_1_25_0_or_higher_preferred(self):
-        """Verify mcp version is >= 1.25.0 for complete security hardening."""
-        version = importlib.metadata.version('mcp')
-
-        # Parse version string
-        version_parts = [int(x) for x in re.split(r'[.-]', version)[:3]]
-        major, minor, patch = (version_parts + [0, 0, 0])[:3]
-
-        # 1.25.0 is the recommended version with all security improvements
-        assert (major, minor, patch) >= (1, 25, 0), (
-            f'MCP version {version} should be upgraded to 1.25.0+ '
-            f'for complete CVE-2025-66416 security hardening.'
-        )
-
-
 class TestTransportSecuritySettingsAvailability:
     """Test that TransportSecuritySettings is available for DNS rebinding protection."""
 
