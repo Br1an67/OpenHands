@@ -17,6 +17,18 @@ from typing import Any
 
 from posthog import Posthog
 
+from openhands.analytics.analytics_constants import (
+    CONVERSATION_CREATED,
+    CONVERSATION_ERRORED,
+    CONVERSATION_FINISHED,
+    CREDIT_LIMIT_REACHED,
+    CREDIT_PURCHASED,
+    GIT_PROVIDER_CONNECTED,
+    ONBOARDING_COMPLETED,
+    USER_ACTIVATED,
+    USER_LOGGED_IN,
+    USER_SIGNED_UP,
+)
 from openhands.core.logger import openhands_logger as logger
 from openhands.server.types import AppMode
 
@@ -133,6 +145,304 @@ class AnalyticsService:
             self._client.group_identify(**kwargs)
         except Exception:
             logger.exception('AnalyticsService.group_identify failed')
+
+    # ------------------------------------------------------------------
+    # Typed event methods
+    # ------------------------------------------------------------------
+
+    def track_user_signed_up(
+        self,
+        distinct_id: str,
+        *,
+        idp: str,
+        email_domain: str | None = None,
+        invitation_source: str = 'self_signup',
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'user signed up' event.
+
+        Fired when a new user completes registration.
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=USER_SIGNED_UP,
+            properties={
+                'idp': idp,
+                'email_domain': email_domain,
+                'invitation_source': invitation_source,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
+
+    def track_user_logged_in(
+        self,
+        distinct_id: str,
+        *,
+        idp: str,
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'user logged in' event.
+
+        Fired when an existing user authenticates.
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=USER_LOGGED_IN,
+            properties={
+                'idp': idp,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
+
+    def track_conversation_created(
+        self,
+        distinct_id: str,
+        *,
+        conversation_id: str,
+        trigger: str | None = None,
+        llm_model: str | None = None,
+        agent_type: str = 'default',
+        has_repository: bool = False,
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'conversation created' event.
+
+        Fired when a new conversation is started.
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=CONVERSATION_CREATED,
+            properties={
+                'conversation_id': conversation_id,
+                'trigger': trigger,
+                'llm_model': llm_model,
+                'agent_type': agent_type,
+                'has_repository': has_repository,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
+
+    def track_conversation_finished(
+        self,
+        distinct_id: str,
+        *,
+        conversation_id: str,
+        terminal_state: str,
+        turn_count: int | None = None,
+        accumulated_cost_usd: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        llm_model: str | None = None,
+        trigger: str | None = None,
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'conversation finished' event.
+
+        Fired when a conversation reaches a terminal state.
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=CONVERSATION_FINISHED,
+            properties={
+                'conversation_id': conversation_id,
+                'terminal_state': terminal_state,
+                'turn_count': turn_count,
+                'accumulated_cost_usd': accumulated_cost_usd,
+                'prompt_tokens': prompt_tokens,
+                'completion_tokens': completion_tokens,
+                'llm_model': llm_model,
+                'trigger': trigger,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
+
+    def track_conversation_errored(
+        self,
+        distinct_id: str,
+        *,
+        conversation_id: str,
+        error_type: str,
+        error_message: str | None = None,
+        llm_model: str | None = None,
+        turn_count: int | None = None,
+        terminal_state: str,
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'conversation errored' event.
+
+        Fired when a conversation ends in an error state.
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=CONVERSATION_ERRORED,
+            properties={
+                'conversation_id': conversation_id,
+                'error_type': error_type,
+                'error_message': error_message,
+                'llm_model': llm_model,
+                'turn_count': turn_count,
+                'terminal_state': terminal_state,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
+
+    def track_credit_purchased(
+        self,
+        distinct_id: str,
+        *,
+        amount_usd: float,
+        credit_balance_before: float | None = None,
+        credit_balance_after: float | None = None,
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'credit purchased' event.
+
+        Fired when a user completes a credit purchase.
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=CREDIT_PURCHASED,
+            properties={
+                'amount_usd': amount_usd,
+                'credit_balance_before': credit_balance_before,
+                'credit_balance_after': credit_balance_after,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
+
+    def track_credit_limit_reached(
+        self,
+        distinct_id: str,
+        *,
+        conversation_id: str,
+        credit_balance: float | None = None,
+        llm_model: str | None = None,
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'credit limit reached' event.
+
+        Fired when a conversation is blocked by insufficient credits.
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=CREDIT_LIMIT_REACHED,
+            properties={
+                'conversation_id': conversation_id,
+                'credit_balance': credit_balance,
+                'llm_model': llm_model,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
+
+    def track_user_activated(
+        self,
+        distinct_id: str,
+        *,
+        conversation_id: str,
+        time_to_activate_seconds: float | None = None,
+        llm_model: str | None = None,
+        trigger: str | None = None,
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'user activated' event.
+
+        Fired when a user completes their first successful conversation.
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=USER_ACTIVATED,
+            properties={
+                'conversation_id': conversation_id,
+                'time_to_activate_seconds': time_to_activate_seconds,
+                'llm_model': llm_model,
+                'trigger': trigger,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
+
+    def track_git_provider_connected(
+        self,
+        distinct_id: str,
+        *,
+        provider_type: str,
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'git provider connected' event.
+
+        Fired when a user connects a git provider (GitHub, GitLab, etc.).
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=GIT_PROVIDER_CONNECTED,
+            properties={
+                'provider_type': provider_type,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
+
+    def track_onboarding_completed(
+        self,
+        distinct_id: str,
+        *,
+        role: str | None = None,
+        org_size: str | None = None,
+        use_case: str | None = None,
+        org_id: str | None = None,
+        session_id: str | None = None,
+        consented: bool = True,
+    ) -> None:
+        """Track 'onboarding completed' event.
+
+        Fired when a user finishes the onboarding flow.
+        """
+        self.capture(
+            distinct_id=distinct_id,
+            event=ONBOARDING_COMPLETED,
+            properties={
+                'role': role,
+                'org_size': org_size,
+                'use_case': use_case,
+            },
+            org_id=org_id,
+            session_id=session_id,
+            consented=consented,
+        )
 
     def identify_user(
         self,
