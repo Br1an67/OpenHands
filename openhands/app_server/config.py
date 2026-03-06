@@ -155,6 +155,12 @@ def config_from_env() -> AppServerConfig:
     from openhands.app_server.sandbox.docker_sandbox_spec_service import (
         DockerSandboxSpecServiceInjector,
     )
+    from openhands.app_server.sandbox.e2b_sandbox_service import (
+        E2BSandboxServiceInjector,
+    )
+    from openhands.app_server.sandbox.e2b_sandbox_spec_service import (
+        E2BSandboxSpecServiceInjector,
+    )
     from openhands.app_server.sandbox.process_sandbox_service import (
         ProcessSandboxServiceInjector,
     )
@@ -192,6 +198,25 @@ def config_from_env() -> AppServerConfig:
                 api_key=os.environ['SANDBOX_API_KEY'],
                 api_url=os.environ['SANDBOX_REMOTE_RUNTIME_API_URL'],
             )
+        elif os.getenv('RUNTIME') == 'e2b':
+            # E2B sandbox service for self-hosted E2B micro VMs
+            e2b_api_url = os.environ.get('E2B_API_URL')
+            e2b_api_key = os.environ.get('E2B_API_KEY')
+            if not e2b_api_url or not e2b_api_key:
+                raise ValueError(
+                    'E2B runtime requires E2B_API_URL and E2B_API_KEY environment variables'
+                )
+            e2b_kwargs: dict = {
+                'api_url': e2b_api_url,
+                'api_key': e2b_api_key,
+            }
+            if os.getenv('E2B_MAX_SANDBOXES'):
+                e2b_kwargs['max_num_sandboxes'] = int(os.environ['E2B_MAX_SANDBOXES'])
+            if os.getenv('E2B_SANDBOX_TIMEOUT'):
+                e2b_kwargs['sandbox_timeout'] = int(os.environ['E2B_SANDBOX_TIMEOUT'])
+            if os.getenv('E2B_WEBHOOK_URL'):
+                e2b_kwargs['webhook_url'] = os.environ['E2B_WEBHOOK_URL']
+            config.sandbox = E2BSandboxServiceInjector(**e2b_kwargs)
         elif os.getenv('RUNTIME') in ('local', 'process'):
             config.sandbox = ProcessSandboxServiceInjector()
         else:
@@ -244,6 +269,17 @@ def config_from_env() -> AppServerConfig:
     if config.sandbox_spec is None:
         if os.getenv('RUNTIME') == 'remote':
             config.sandbox_spec = RemoteSandboxSpecServiceInjector()
+        elif os.getenv('RUNTIME') == 'e2b':
+            # E2B sandbox spec service for self-hosted E2B templates
+            e2b_api_url = os.environ.get('E2B_API_URL', '')
+            e2b_api_key = os.environ.get('E2B_API_KEY', '')
+            e2b_spec_kwargs: dict = {
+                'api_url': e2b_api_url,
+                'api_key': e2b_api_key,
+            }
+            if os.getenv('E2B_DEFAULT_TEMPLATE'):
+                e2b_spec_kwargs['default_template'] = os.environ['E2B_DEFAULT_TEMPLATE']
+            config.sandbox_spec = E2BSandboxSpecServiceInjector(**e2b_spec_kwargs)
         elif os.getenv('RUNTIME') in ('local', 'process'):
             config.sandbox_spec = ProcessSandboxSpecServiceInjector()
         else:
