@@ -140,7 +140,6 @@ PROMPT_CACHE_PATTERNS: list[str] = [
     'claude-3-opus-20240229',
     'claude-sonnet-4*',
     'claude-opus-4*',
-    # Gemini series - verified via litellm config
     'gemini-3.1-pro*',
     # Kimi series - verified via litellm config
     'kimi-k2.5',
