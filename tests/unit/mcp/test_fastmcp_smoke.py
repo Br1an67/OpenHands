@@ -287,7 +287,14 @@ class TestFastMCPIntegrationSmoke:
 
     @pytest.mark.asyncio
     async def test_in_process_server_client_communication(self):
-        """Test server and client can communicate in-process using mocks."""
+        """Test server and client can communicate in-process.
+
+        This is a real smoke test that:
+        1. Creates a FastMCP server with a tool
+        2. Connects a client to the server in-process
+        3. Lists available tools through the client
+        4. Calls the tool and verifies the result
+        """
         # Create a server with a tool
         server = FastMCP('integration-test-server')
 
@@ -296,14 +303,25 @@ class TestFastMCPIntegrationSmoke:
             """Add two numbers together."""
             return a + b
 
-        # Verify the tool is registered
-        tools = list(server._tool_manager._tools.values())
-        tool_names = [t.name for t in tools]
-        assert 'add_numbers' in tool_names
+        # Create an in-process client connected directly to the server
+        client = Client(server)
 
-        # Find our tool
-        add_tool = next(t for t in tools if t.name == 'add_numbers')
-        assert add_tool.description == 'Add two numbers together.'
+        async with client:
+            # List tools through the client
+            tools = await client.list_tools()
+            tool_names = [t.name for t in tools]
+            assert 'add_numbers' in tool_names
+
+            # Find our tool and verify its description
+            add_tool = next(t for t in tools if t.name == 'add_numbers')
+            assert add_tool.description == 'Add two numbers together.'
+
+            # Call the tool through the client and verify the result
+            result = await client.call_tool('add_numbers', {'a': 2, 'b': 3})
+            assert result is not None
+            assert not result.is_error
+            assert len(result.content) == 1
+            assert result.content[0].text == '5'
 
     @pytest.mark.asyncio
     async def test_openhands_mcp_client_with_mock_server(self):
