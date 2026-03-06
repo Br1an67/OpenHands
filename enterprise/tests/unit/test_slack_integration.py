@@ -74,17 +74,20 @@ class TestRepoQueryTimeoutHandling:
     """Test timeout handling when fetching repositories for Slack integration."""
 
     @patch.object(SlackManager, 'send_message', new_callable=AsyncMock)
-    @patch.object(SlackManager, '_get_repositories', new_callable=AsyncMock)
-    async def test_timeout_sends_user_friendly_message(
+    @patch.object(SlackManager, '_search_repositories', new_callable=AsyncMock)
+    async def test_timeout_sends_user_friendly_message_and_shows_selector(
         self,
-        mock_get_repositories,
+        mock_search_repositories,
         mock_send_message,
         slack_manager,
         slack_new_conversation_view,
     ):
-        """Test that when repository fetching times out, a user-friendly message is sent."""
-        # Setup: _get_repositories raises ProviderTimeoutError
-        mock_get_repositories.side_effect = ProviderTimeoutError(
+        """Test that when repository search times out, a message is sent and selector is shown."""
+        # Setup: Modify message to include a repo reference to trigger the search
+        slack_new_conversation_view.user_msg = 'Help me with OpenHands/OpenHands repo'
+
+        # Setup: _search_repositories raises ProviderTimeoutError
+        mock_search_repositories.side_effect = ProviderTimeoutError(
             'github API request timed out: ConnectTimeout'
         )
 
@@ -93,34 +96,38 @@ class TestRepoQueryTimeoutHandling:
             MagicMock(), slack_new_conversation_view
         )
 
-        # Verify: should return False (job not started)
+        # Verify: should return False (job not started, but selector is shown)
         assert result is False
 
-        # Verify: send_message was called with the timeout message
-        mock_send_message.assert_called_once()
-        call_args = mock_send_message.call_args
+        # Verify: send_message was called twice:
+        # 1. Timeout warning message
+        # 2. Repository selection form
+        assert mock_send_message.call_count == 2
 
-        # Check the message content
-        message = call_args[0][0]
-        assert 'timed out' in message
-        assert 'repository name' in message
-        assert 'owner/repo-name' in message
+        # Check the first call (timeout message)
+        first_call_args = mock_send_message.call_args_list[0]
+        timeout_message = first_call_args[0][0]
+        assert 'timed out' in timeout_message
+        assert first_call_args[1]['ephemeral'] is True
 
-        # Check it was sent as ephemeral
-        assert call_args[1]['ephemeral'] is True
+        # Check the second call (repo selector)
+        second_call_args = mock_send_message.call_args_list[1]
+        selector_message = second_call_args[0][0]
+        assert isinstance(selector_message, dict)
+        assert selector_message.get('text') == 'Choose a Repository:'
 
     @patch.object(SlackManager, 'send_message', new_callable=AsyncMock)
-    @patch.object(SlackManager, '_get_repositories', new_callable=AsyncMock)
-    async def test_successful_repo_fetch_does_not_send_timeout_message(
+    @patch.object(SlackManager, '_search_repositories', new_callable=AsyncMock)
+    async def test_successful_repo_fetch_shows_external_selector(
         self,
-        mock_get_repositories,
+        mock_search_repositories,
         mock_send_message,
         slack_manager,
         slack_new_conversation_view,
     ):
-        """Test that successful repo fetch shows repo selector, not timeout message."""
-        # Setup: _get_repositories returns empty list (no repos, but no timeout)
-        mock_get_repositories.return_value = []
+        """Test that successful search shows external_select repo selector."""
+        # Setup: _search_repositories returns empty list (no repos, but no timeout)
+        mock_search_repositories.return_value = []
 
         # Execute
         result = await slack_manager.is_job_requested(
@@ -137,6 +144,85 @@ class TestRepoQueryTimeoutHandling:
         # Check the message is NOT the timeout message
         message = call_args[0][0]
         assert 'timed out' not in str(message)
-        # Should be the repo selection form
+        # Should be the repo selection form with external_select
         assert isinstance(message, dict)
         assert message.get('text') == 'Choose a Repository:'
+        # Verify it's using external_select
+        blocks = message.get('blocks', [])
+        actions_block = next((b for b in blocks if b.get('type') == 'actions'), None)
+        assert actions_block is not None
+        elements = actions_block.get('elements', [])
+        assert len(elements) > 0
+        assert elements[0].get('type') == 'external_select'
+
+
+class TestBuildRepoOptions:
+    """Test the _build_repo_options helper method."""
+
+    def test_build_options_with_repos(self, slack_manager):
+        """Test building options from a list of repositories."""
+        from openhands.integrations.service_types import ProviderType, Repository
+
+        repos = [
+            Repository(
+                id='1',
+                full_name='owner/repo1',
+                git_provider=ProviderType.GITHUB,
+                is_public=True,
+            ),
+            Repository(
+                id='2',
+                full_name='owner/repo2',
+                git_provider=ProviderType.GITHUB,
+                is_public=False,
+            ),
+        ]
+
+        options = slack_manager._build_repo_options(repos, include_no_repo=True)
+
+        # Should have 3 options: "No Repository" + 2 repos
+        assert len(options) == 3
+        assert options[0]['value'] == '-'
+        assert options[0]['text']['text'] == 'No Repository'
+        assert options[1]['value'] == 'owner/repo1'
+        assert options[2]['value'] == 'owner/repo2'
+
+    def test_build_options_without_no_repo(self, slack_manager):
+        """Test building options without the No Repository option."""
+        from openhands.integrations.service_types import ProviderType, Repository
+
+        repos = [
+            Repository(
+                id='1',
+                full_name='owner/repo1',
+                git_provider=ProviderType.GITHUB,
+                is_public=True,
+            ),
+        ]
+
+        options = slack_manager._build_repo_options(repos, include_no_repo=False)
+
+        # Should have 1 option (just the repo)
+        assert len(options) == 1
+        assert options[0]['value'] == 'owner/repo1'
+
+    def test_build_options_truncates_long_names(self, slack_manager):
+        """Test that repo names longer than 75 chars are truncated."""
+        from openhands.integrations.service_types import ProviderType, Repository
+
+        long_name = 'a' * 100
+        repos = [
+            Repository(
+                id='1',
+                full_name=long_name,
+                git_provider=ProviderType.GITHUB,
+                is_public=True,
+            ),
+        ]
+
+        options = slack_manager._build_repo_options(repos, include_no_repo=False)
+
+        # Text should be truncated to 75 chars
+        assert len(options[0]['text']['text']) == 75
+        # But value should have full name
+        assert options[0]['value'] == long_name

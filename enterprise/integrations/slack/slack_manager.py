@@ -97,7 +97,19 @@ class SlackManager(Manager[SlackViewInterface]):
 
         return None
 
-    async def _get_repositories(self, user_auth: UserAuth) -> list[Repository]:
+    async def _search_repositories(
+        self, user_auth: UserAuth, query: str = '', per_page: int = 100
+    ) -> list[Repository]:
+        """Search repositories for a user with optional query filtering.
+
+        Args:
+            user_auth: The user's authentication context
+            query: Search query to filter repositories (empty string returns all)
+            per_page: Maximum number of results to return
+
+        Returns:
+            List of matching Repository objects
+        """
         provider_tokens = await user_auth.get_provider_tokens()
         if provider_tokens is None:
             return []
@@ -108,31 +120,33 @@ class SlackManager(Manager[SlackViewInterface]):
             external_auth_token=access_token,
             external_auth_id=user_id,
         )
-        repos: list[Repository] = await client.get_repositories(
-            'pushed', server_config.app_mode, None, None, None, None
+        repos: list[Repository] = await client.search_repositories(
+            selected_provider=None,
+            query=query,
+            per_page=per_page,
+            sort='pushed',
+            order='desc',
+            app_mode=server_config.app_mode,
         )
         return repos
 
     def _generate_repo_selection_form(
-        self, repo_list: list[Repository], message_ts: str, thread_ts: str | None
-    ):
-        options = [
-            {
-                'text': {'type': 'plain_text', 'text': 'No Repository'},
-                'value': '-',
-            }
-        ]
-        options.extend(
-            {
-                'text': {
-                    'type': 'plain_text',
-                    'text': repo.full_name,
-                },
-                'value': repo.full_name,
-            }
-            for repo in repo_list
-        )
+        self, message_ts: str, thread_ts: str | None
+    ) -> list[dict[str, Any]]:
+        """Generate a repo selection form using external_select for dynamic loading.
 
+        This uses Slack's external_select element which allows:
+        - Type-ahead search for repositories
+        - Dynamic loading of options from an external endpoint
+        - Support for users with many repositories (no 100 option limit)
+
+        Args:
+            message_ts: The message timestamp for tracking
+            thread_ts: The thread timestamp if in a thread
+
+        Returns:
+            List of Slack Block Kit blocks for the selection form
+        """
         return [
             {
                 'type': 'header',
@@ -143,23 +157,66 @@ class SlackManager(Manager[SlackViewInterface]):
                 },
             },
             {
+                'type': 'section',
+                'text': {
+                    'type': 'mrkdwn',
+                    'text': 'Type to search your repositories:',
+                },
+            },
+            {
                 'type': 'actions',
                 'elements': [
                     {
-                        'type': 'static_select',
+                        'type': 'external_select',
                         'action_id': f'repository_select:{message_ts}:{thread_ts}',
-                        'options': options,
+                        'placeholder': {
+                            'type': 'plain_text',
+                            'text': 'Search repositories...',
+                        },
+                        'min_query_length': 0,  # Load initial options immediately
                     }
                 ],
             },
         ]
+
+    def _build_repo_options(
+        self, repos: list[Repository], include_no_repo: bool = True
+    ) -> list[dict[str, Any]]:
+        """Build Slack options list from repositories.
+
+        Args:
+            repos: List of Repository objects
+            include_no_repo: Whether to include "No Repository" option
+
+        Returns:
+            List of Slack option objects
+        """
+        options: list[dict[str, Any]] = []
+        if include_no_repo:
+            options.append(
+                {
+                    'text': {'type': 'plain_text', 'text': 'No Repository'},
+                    'value': '-',
+                }
+            )
+        options.extend(
+            {
+                'text': {
+                    'type': 'plain_text',
+                    'text': repo.full_name[:75],  # Slack has 75 char limit for text
+                },
+                'value': repo.full_name,
+            }
+            for repo in repos[:99]  # Leave room for "No Repository" option
+        )
+        return options
 
     def filter_potential_repos_by_user_msg(
         self, user_msg: str, user_repos: list[Repository]
     ) -> tuple[bool, list[Repository]]:
         inferred_repo = self._infer_repo_from_message(user_msg)
         if not inferred_repo:
-            return False, user_repos[0:99]
+            return False, user_repos[:100]
 
         final_repos = []
         for repo in user_repos:
@@ -168,14 +225,14 @@ class SlackManager(Manager[SlackViewInterface]):
 
         # no repos matched, return original list
         if len(final_repos) == 0:
-            return False, user_repos[0:99]
+            return False, user_repos[:100]
 
         # Found exact match
         elif len(final_repos) == 1:
             return True, final_repos
 
         # Found partial matches
-        return False, final_repos[0:99]
+        return False, final_repos[:100]
 
     async def receive_message(self, message: Message):
         self._confirm_incoming_source_type(message)
@@ -270,43 +327,50 @@ class SlackManager(Manager[SlackViewInterface]):
         elif isinstance(slack_view, SlackNewConversationView):
             user = slack_view.slack_to_openhands_user
 
-            # Fetch repositories, handling timeout errors from the provider
-            logger.info(
-                f'[Slack] Fetching repositories for user {user.slack_display_name} (id={slack_view.saas_user_auth.get_user_id()})'
-            )
-            try:
-                user_repos: list[Repository] = await self._get_repositories(
-                    slack_view.saas_user_auth
-                )
-            except ProviderTimeoutError:
-                logger.warning(
-                    'repo_query_timeout',
-                    extra={
-                        'slack_user_id': user.slack_user_id,
-                        'keycloak_user_id': user.keycloak_user_id,
-                    },
-                )
-                timeout_msg = (
-                    'The repository selection timed out while fetching your repository list. '
-                    'Please re-send your message with a more specific repository name '
-                    '(e.g., "owner/repo-name") to help me find it faster.'
-                )
-                await self.send_message(timeout_msg, slack_view, ephemeral=True)
-                return False
+            # Try to infer repo from the user's message first
+            inferred_repo = self._infer_repo_from_message(slack_view.user_msg)
 
-            match, repos = self.filter_potential_repos_by_user_msg(
-                slack_view.user_msg, user_repos
-            )
+            if inferred_repo:
+                # Search for repositories matching the inferred repo name
+                logger.info(
+                    f'[Slack] Searching repositories for inferred repo "{inferred_repo}" '
+                    f'for user {user.slack_display_name} (id={slack_view.saas_user_auth.get_user_id()})'
+                )
+                try:
+                    user_repos: list[Repository] = await self._search_repositories(
+                        slack_view.saas_user_auth, query=inferred_repo, per_page=100
+                    )
+                except ProviderTimeoutError:
+                    logger.warning(
+                        'repo_query_timeout',
+                        extra={
+                            'slack_user_id': user.slack_user_id,
+                            'keycloak_user_id': user.keycloak_user_id,
+                        },
+                    )
+                    timeout_msg = (
+                        'The repository search timed out. '
+                        'Please try again or use the repository selector below.'
+                    )
+                    await self.send_message(timeout_msg, slack_view, ephemeral=True)
+                    # Fall through to show the external_select form
+                    user_repos = []
 
-            # User mentioned a matching repo is their message, start job without repo selection form
-            if match:
-                slack_view.selected_repo = repos[0].full_name
-                return True
+                # Check for exact match
+                match, repos = self.filter_potential_repos_by_user_msg(
+                    slack_view.user_msg, user_repos
+                )
 
+                # User mentioned a matching repo in their message, start job without repo selection form
+                if match:
+                    slack_view.selected_repo = repos[0].full_name
+                    return True
+
+            # No exact match found - show the external_select form for dynamic search
             logger.info(
                 'render_repository_selector',
                 extra={
-                    'slack_user_id': user,
+                    'slack_user_id': user.slack_user_id,
                     'keycloak_user_id': user.keycloak_user_id,
                     'message_ts': slack_view.message_ts,
                     'thread_ts': slack_view.thread_ts,
@@ -316,7 +380,7 @@ class SlackManager(Manager[SlackViewInterface]):
             repo_selection_msg = {
                 'text': 'Choose a Repository:',
                 'blocks': self._generate_repo_selection_form(
-                    repos, slack_view.message_ts, slack_view.thread_ts
+                    slack_view.message_ts, slack_view.thread_ts
                 ),
             }
             await self.send_message(repo_selection_msg, slack_view, ephemeral=True)
