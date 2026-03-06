@@ -13,9 +13,6 @@ parameter is 127.0.0.1 or localhost. This is enforced through TransportSecurityS
 Reference: https://github.com/modelcontextprotocol/python-sdk/security/advisories/GHSA-9h52-p55h-vw2f
 """
 
-import importlib.metadata
-import re
-
 import pytest
 
 
